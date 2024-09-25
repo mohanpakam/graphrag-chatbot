@@ -42,11 +42,11 @@ This project implements an AI chatbot using Streamlit for the frontend and FastA
    c. For Windows:
    Download the SQLite precompiled binaries for Windows from the official SQLite website: https://www.sqlite.org/download.html
 
-   After installation, you need to compile the SQLite VSS extension:
+   After installation, you need to compile the SQLite VEC extension:
 
    ```bash
-   git clone https://github.com/asg017/sqlite-vss
-   cd sqlite-vss
+   git clone https://github.com/asg017/sqlite-vec
+   cd sqlite-vec
    make
    ```
 
