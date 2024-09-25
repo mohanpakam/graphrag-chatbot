@@ -1,8 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import sqlite3
+import numpy as np
+from database_manager import DatabaseManager
 import yaml
-from openai import AzureOpenAI
+import requests
 
 app = FastAPI()
 
@@ -11,54 +12,46 @@ def load_config():
         return yaml.safe_load(f)
 
 config = load_config()
+db_manager = DatabaseManager(config['database_path'])
 
-# Initialize Azure OpenAI client
-client = AzureOpenAI(
-    api_key=config['azure_openai_api_key'],
-    api_version="2023-05-15",
-    azure_endpoint=config['azure_openai_endpoint']
-)
-
-class ChatInput(BaseModel):
+class ChatRequest(BaseModel):
     message: str
 
-@app.post("/chat")
-async def chat(input: ChatInput):
-    # Get embedding for the input message
-    response = client.embeddings.create(input=input.message, model=config['embedding_model'])
-    query_embedding = response.data[0].embedding
-
-    # Search for relevant documents
-    conn = sqlite3.connect(config['database_path'])
-    conn.enable_load_extension(True)
-    conn.load_extension("sqlite_vss")
-
-    cursor = conn.cursor()
-    cursor.execute(f'''
-        SELECT content, distance
-        FROM documents
-        ORDER BY vss_search(embedding, ?) ASC
-        LIMIT {config['top_k']}
-    ''', (sqlite3.Binary(bytes(query_embedding)),))
-
-    relevant_docs = cursor.fetchall()
-    conn.close()
-
-    # Prepare context from relevant documents
-    context = "\n".join([doc[0] for doc in relevant_docs])
-
-    # Generate response using Azure OpenAI
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant. Use the following context to answer the user's question."},
-        {"role": "user", "content": f"Context: {context}\n\nQuestion: {input.message}"}
-    ]
-    
-    completion = client.chat.completions.create(
-        model="gpt-3.5-turbo",  # Replace with your deployed model name
-        messages=messages
+def get_embedding(text):
+    response = requests.post(
+        config['local_ollama_chat_api_url'],
+        json={"model": config['local_ollama_model'], "prompt": text}
     )
+    if response.status_code == 200:
+        return response.json()['embedding']
+    else:
+        raise HTTPException(status_code=500, detail="Failed to generate embedding")
 
-    return {"response": completion.choices[0].message.content}
+@app.post("/chat")
+async def chat(request: ChatRequest):
+    user_input = request.message
+    
+    with db_manager.connect() as conn:
+        # Convert user input to embedding
+        user_embedding = get_embedding(user_input)
+        
+        # Perform similarity search
+        cursor = conn.execute('''
+            SELECT content, vec_dot(embedding, ?) AS similarity
+            FROM documents
+            ORDER BY similarity DESC
+            LIMIT 5
+        ''', (np.array(user_embedding, dtype=np.float32).tobytes(),))
+        
+        similar_docs = cursor.fetchall()
+        
+        # Process similar documents and generate a response
+        # This is a placeholder. You should implement your own logic here.
+        response = f"Based on your input, I found {len(similar_docs)} relevant documents. Here's a summary:\n\n"
+        for doc, similarity in similar_docs:
+            response += f"- {doc[:100]}... (similarity: {similarity:.2f})\n"
+        
+        return {"response": response}
 
 if __name__ == "__main__":
     import uvicorn

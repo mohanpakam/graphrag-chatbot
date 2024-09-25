@@ -18,3 +18,8 @@ chunk_overlap: 200
 # SQLite Vector Search
 distance_function: "cosine"
 top_k: 5
+
+#Llama 3.1
+local_ollama_embeddings_api_url: http://localhost:11434/api/embeddings
+local_ollama_chat_api_url: http://localhost:11434/api/chat
+local_ollama_model: llama3.1

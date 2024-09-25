@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import yaml
+from database_manager import DatabaseManager
 
 def load_config():
     with open("config.yaml", "r") as f:
@@ -19,6 +20,7 @@ if 'chat_history' not in st.session_state:
 def get_ai_response(user_input):
     api_url = f"{config['backend_api_url']}/chat"
     response = requests.post(api_url, json={"message": user_input})
+    print(response)
     return response.json()["response"]
 
 # Header
