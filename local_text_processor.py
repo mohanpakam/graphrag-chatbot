@@ -1,11 +1,10 @@
 import os
-import time
-import yaml
-import sqlite3
-import requests
 import numpy as np
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from database_manager import DatabaseManager
+from ai_service import get_ai_service
+import yaml
+import spacy
+from logger_config import LoggerConfig
 
 def load_config():
     with open("config.yaml", "r") as f:
@@ -13,86 +12,105 @@ def load_config():
 
 config = load_config()
 
-# Separate configuration for local Ollama API
-local_ollama_config = {
-    'api_url': config.get('local_ollama_embeddings_api_url', 'http://localhost:11434/api/embeddings'),
-    'model': config.get('local_ollama_model', 'llama3.1')
-}
+# Configure logging
+logger = LoggerConfig.setup_logger(__name__)
 
-# Initialize API call counter and total response time
-embedding_api_calls = 0
-total_response_time = 0
+# Load spaCy model
+nlp = spacy.load("en_core_web_lg")
 
-def create_chunks(text):
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=config['chunk_size'],
-        chunk_overlap=config['chunk_overlap'],
-        length_function=len
-    )
-    return text_splitter.split_text(text)
+# Initialize the AI service
+ai_service = get_ai_service()
 
-def get_embeddings(texts):
-    global embedding_api_calls, total_response_time
-    embeddings = []
-    for text in texts:
-        start_time = time.time()
-        response = requests.post(
-            local_ollama_config['api_url'],
-            json={"model": local_ollama_config['model'], "prompt": text}
-        )
-        end_time = time.time()
-        response_time = end_time - start_time
-        total_response_time += response_time
-        embedding_api_calls += 1
-        
-        if response.status_code == 200:
-            embedding = response.json()['embedding']
-            embeddings.append(embedding)
-            print(f"Processed chunk {embedding_api_calls}. Response time: {response_time:.2f} seconds")
-            print(f"Embedding (first 5 values): {embedding[:5]}")
+db_manager = DatabaseManager(config['database_path'])
+
+def chunk_text(text, chunk_size, chunk_overlap):
+    doc = nlp(text)
+    sentences = list(doc.sents)
+    chunks = []
+    current_chunk = []
+    current_chunk_size = 0
+
+    for sentence in sentences:
+        sentence_text = sentence.text.strip()
+        sentence_length = len(sentence_text)
+
+        if current_chunk_size + sentence_length <= chunk_size:
+            current_chunk.append(sentence_text)
+            current_chunk_size += sentence_length
         else:
-            print(f"Error processing chunk {embedding_api_calls}: {response.text}")
+            if current_chunk:
+                chunks.append(" ".join(current_chunk))
+            current_chunk = [sentence_text]
+            current_chunk_size = sentence_length
+
+        # Check for overlap
+        while current_chunk_size > chunk_overlap and len(current_chunk) > 1:
+            removed_sentence = current_chunk.pop(0)
+            current_chunk_size -= len(removed_sentence)
+
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+
+    # Handle case where a single sentence is longer than chunk_size
+    if not chunks and sentences:
+        chunks = [sentences[0].text.strip()]
+
+    return chunks
+
+def process_text_files(folder_path):
+    # Initialize the database and create tables
+    db_manager.init_database()
     
-    return embeddings
+    # Clear existing documents (optional, comment out if you want to keep existing documents)
+    db_manager.clear_documents()
 
-def process_texts():
-    global embedding_api_calls, total_response_time
-    text_folder = config['text_folder']
-    db_path = config['database_path']
+    chunk_size = config['chunk_size']
+    chunk_overlap = config['chunk_overlap']
 
-    db_manager = DatabaseManager(db_path)
+    for filename in os.listdir(folder_path):
+        if filename.endswith(".txt"):
+            file_path = os.path.join(folder_path, filename)
+            with open(file_path, 'r', encoding='utf-8') as file:
+                content = file.read()
+            
+            # Chunk the content using spaCy
+            chunks = chunk_text(content, chunk_size, chunk_overlap)
+            logger.info(f"Processing {filename}: {len(chunks)} chunks created")
+            
+            for i, chunk in enumerate(chunks):
+                # Generate embedding for each chunk
+                embedding = ai_service.get_embedding(chunk)
+                
+                # Print the dimension of the embedding
+                embedding_dim = len(embedding)
+                logger.info(f"Embedding dimension for chunk {i}: {embedding_dim}")
+                
+                # Convert the embedding to a binary format
+                embedding_binary = np.array(embedding, dtype=np.float32).tobytes()
+                
+                # Store the chunk and its embedding in the database
+                with db_manager.connect() as conn:
+                    conn.execute('''
+                        INSERT INTO documents (filename, chunk_index, content, embedding)
+                        VALUES (?, ?, ?, ?)
+                    ''', (filename, i, chunk, embedding_binary))
+                
+                # Verify that the stored embedding matches the original
+                with db_manager.connect() as conn:
+                    stored_embedding = conn.execute('''
+                        SELECT embedding FROM documents
+                        WHERE filename = ? AND chunk_index = ?
+                    ''', (filename, i)).fetchone()[0]
+                
+                stored_embedding_array = np.frombuffer(stored_embedding, dtype=np.float32)
+                
+                if not np.array_equal(np.array(embedding, dtype=np.float32), stored_embedding_array):
+                    logger.error(f"Mismatch in stored embedding for {filename}, chunk {i}")
+                else:
+                    logger.info(f"Embedding for {filename}, chunk {i} stored correctly")
 
-    with db_manager.connect() as conn:
-        
-        # sqlite_version, vec_version = conn.execute("select sqlite_version(), vec_version()" ).fetchone()
-        # print(f"sqlite_version={sqlite_version}, vec_version={vec_version}")
-        # Create table for storing document chunks and vectors
-        conn.execute('''CREATE TABLE IF NOT EXISTS documents 
-                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                         content TEXT,
-                         embedding BLOB)''')
-
-        for filename in os.listdir(text_folder):
-            if filename.endswith('.txt'):
-                file_path = os.path.join(text_folder, filename)
-                print(f"Processing {filename}...")
-                with open(file_path, 'r', encoding='utf-8') as file:
-                    text = file.read()
-                chunks = create_chunks(text)
-                embeddings = get_embeddings(chunks)
-
-                # Store chunks and embeddings in the database
-                for chunk, embedding in zip(chunks, embeddings):
-                    embedding_bytes = np.array(embedding, dtype=np.float32).tobytes()
-                    conn.execute('INSERT INTO documents (content, embedding) VALUES (?, ?)',
-                                 (chunk, embedding_bytes))
-
-        conn.commit()
-
-    print(f"\nProcessing complete.")
-    print(f"Total embedding API calls: {embedding_api_calls}")
-    print(f"Total response time: {total_response_time:.2f} seconds")
-    print(f"Average response time: {(total_response_time / embedding_api_calls):.2f} seconds per call")
+    logger.info("Text processing, chunking, and embedding generation complete.")
 
 if __name__ == "__main__":
-    process_texts()
+    text_folder = config['text_folder']
+    process_text_files(text_folder)

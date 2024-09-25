@@ -5,21 +5,33 @@ azure_openai_endpoint: "https://your-azure-openai-endpoint.openai.azure.com/"
 
 # File Paths
 text_folder: "./texts"
-database_path: "./vectordb.sqlite"
+database_path: "vectordb.sqlite"
 
 # API URL
 backend_api_url: "http://localhost:8000"
 
 # Vector Embedding
 embedding_model: "text-embedding-ada-002"
-chunk_size: 1000
-chunk_overlap: 200
+chunk_size: 300
+chunk_overlap: 20
 
 # SQLite Vector Search
 distance_function: "cosine"
 top_k: 5
 
-#Llama 3.1
-local_ollama_embeddings_api_url: http://localhost:11434/api/embeddings
-local_ollama_chat_api_url: http://localhost:11434/api/chat
-local_ollama_model: llama3.1
+# AI Service Selection
+ai_service: "ollama"  # or "azure_openai"
+
+# Ollama configuration
+ollama_model: "llama3.1"
+
+# Azure OpenAI configuration
+azure_openai_api_key: "your_api_key"
+azure_openai_endpoint: "https://your-resource-name.openai.azure.com/"
+azure_openai_embedding_deployment: "your_embedding_deployment_name"
+azure_openai_completion_deployment: "your_completion_deployment_name"
+
+# Logging Configuration
+logging:
+  enabled: true
+  level: INFO  # Can be DEBUG, INFO, WARNING, ERROR, CRITICAL

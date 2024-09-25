@@ -1,24 +1,45 @@
 import sqlite3
-import sqlite_vec
+from sqlite3 import Connection
+from contextlib import contextmanager
 
 class DatabaseManager:
-    def __init__(self, db_path):
+    def __init__(self, db_path: str):
         self.db_path = db_path
-        self.conn = None
 
-    def connect(self):
-        self.conn = sqlite3.connect(self.db_path)
-        self.conn.enable_load_extension(True)
-        sqlite_vec.load(self.conn)
-        self.conn.enable_load_extension(False)
-        return self.conn
+    @contextmanager
+    def connect(self) -> Connection:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            yield conn
+        finally:
+            conn.commit()
+            conn.close()
 
-    def close(self):
-        if self.conn:
-            self.conn.close()
+    def init_database(self):
+        with self.connect() as conn:
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS documents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    filename TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    embedding BLOB NOT NULL
+                )
+            ''')
+            
+            # Create an index on the filename for faster lookups
+            conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_filename ON documents(filename)
+            ''')
 
-    def __enter__(self):
-        return self.connect()
+            # Create an index on the chunk_index for faster lookups
+            conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_chunk_index ON documents(chunk_index)
+            ''')
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
+            print("Database initialized with required tables and indices.")
+
+    def clear_documents(self):
+        with self.connect() as conn:
+            conn.execute('DELETE FROM documents')
+        print("All documents cleared from the database.")

@@ -20,7 +20,8 @@ if 'chat_history' not in st.session_state:
 def get_ai_response(user_input):
     api_url = f"{config['backend_api_url']}/chat"
     response = requests.post(api_url, json={"message": user_input})
-    print(response)
+    print("Request sent to API:", user_input)
+    print("Response received from API:", response.json())
     return response.json()["response"]
 
 # Header
@@ -45,8 +46,8 @@ if st.button("Send"):
         # Add AI response to chat history
         st.session_state.chat_history.append(("ai", ai_response))
         
-        # Clear user input
-        st.session_state.user_input = ""
+        # Clear user input by rerunning the app
+        st.rerun()  # Changed from st.experimental_rerun()
 
 # Display chat history
 with chat_container:
@@ -59,6 +60,7 @@ with chat_container:
 # Clear chat button
 if st.button("Clear Chat"):
     st.session_state.chat_history = []
+    st.rerun()  # Changed from st.experimental_rerun()
 
 # Footer
 st.markdown("---")
