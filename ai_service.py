@@ -1,5 +1,4 @@
 import requests
-from abc import ABC, abstractmethod
 from typing import List
 import numpy as np
 from openai import AzureOpenAI
@@ -7,6 +6,8 @@ import ollama
 import yaml
 import time
 from logger_config import LoggerConfig
+from base_ai_service import AIService
+from langchain_ai_service import get_langchain_ai_service
 
 def load_config():
     try:
@@ -19,19 +20,6 @@ config = load_config()
 
 # Configure logging
 logger = LoggerConfig.setup_logger(__name__)
-
-class AIService(ABC):
-    @abstractmethod
-    def get_embedding(self, text: str) -> List[float]:
-        pass
-
-    @abstractmethod
-    def generate_response(self, prompt: str, context: str) -> str:
-        pass
-
-    @abstractmethod
-    def get_embedding_dim(self) -> int:
-        pass
 
 class OllamaService(AIService):
     def __init__(self, model: str = None):
@@ -58,6 +46,10 @@ class OllamaService(AIService):
 
     def get_embedding_dim(self) -> int:
         return self.embedding_dims.get(self.model, 4096)  # Default to 4096 if unknown
+
+    def clear_conversation_history(self):
+        # Ollama doesn't maintain conversation history by default
+        pass
 
 class AzureOpenAIService(AIService):
     def __init__(self, api_key: str = None, endpoint: str = None, 
@@ -117,9 +109,17 @@ class AzureOpenAIService(AIService):
         }
         return azure_embedding_dims.get(self.embedding_deployment, 1536)  # Default to 1536 if unknown
 
+    def clear_conversation_history(self):
+        # Azure OpenAI doesn't maintain conversation history by default
+        pass
+
 def get_ai_service() -> AIService:
     service_type = config.get('ai_service', 'ollama')
-    if service_type == 'ollama':
+    use_langchain = config.get('use_langchain', False)
+    
+    if use_langchain:
+        return get_langchain_ai_service(service_type)
+    elif service_type == 'ollama':
         return OllamaService()
     elif service_type == 'azure_openai':
         return AzureOpenAIService()

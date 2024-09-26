@@ -19,8 +19,9 @@ chunk_overlap: 20
 distance_function: "cosine"
 top_k: 5
 
-# AI Service Selection
-ai_service: "ollama"  # or "azure_openai"
+# AI Service Configuration
+ai_service: ollama  # Options: 'ollama', 'azure_openai', 'openai'
+use_langchain: true  # Set to true to use LangChain-based implementations
 
 # Ollama configuration
 ollama_model: "llama3.1"

@@ -6,9 +6,12 @@ PyYAML
 requests
 openai
 ollama
-spacy
-#https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.5.0/en_core_web_lg-3.5.0.tar.gz
+spacy==3.5.0
+https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.5.0/en_core_web_lg-3.5.0.tar.gz
 streamlit
 sqlite-utils
 sqlite-vec
 PyPDF2
+langchain
+langchain-community
+tiktoken

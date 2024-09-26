@@ -24,6 +24,9 @@ logger = LoggerConfig.setup_logger(__name__)
 
 class ChatRequest(BaseModel):
     message: str
+    reset: bool = False
+
+ai_service = get_ai_service()  # Initialize the AI service once
 
 @app.on_event("startup")
 async def startup_event():
@@ -31,7 +34,13 @@ async def startup_event():
     embedding_cache.cache_embeddings()
 
 @app.post("/chat")
-async def chat(request: ChatRequest, ai_service: AIService = Depends(get_ai_service)):
+async def chat(request: ChatRequest):
+    if request.reset:
+        if hasattr(ai_service, 'clear_conversation_history'):
+            ai_service.clear_conversation_history()
+        logger.info("Chat history has been reset")
+        return {"response": "Chat history has been cleared."}
+
     start_time = time.time()
     user_input = request.message
     

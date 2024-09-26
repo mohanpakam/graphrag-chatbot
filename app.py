@@ -17,10 +17,11 @@ if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 
 # Function to send user input to the backend API and get response
-def get_ai_response(user_input):
+def get_ai_response(user_input, reset=False):
     api_url = f"{config['backend_api_url']}/chat"
-    response = requests.post(api_url, json={"message": user_input})
-    print("Request sent to API:", user_input)
+    payload = {"message": user_input, "reset": reset}
+    response = requests.post(api_url, json=payload)
+    print("Request sent to API:", payload)
     print("Response received from API:", response.json())
     return response.json()["response"]
 
@@ -47,7 +48,7 @@ if st.button("Send"):
         st.session_state.chat_history.append(("ai", ai_response))
         
         # Clear user input by rerunning the app
-        st.rerun()  # Changed from st.experimental_rerun()
+        st.rerun()
 
 # Display chat history
 with chat_container:
@@ -57,10 +58,16 @@ with chat_container:
         else:
             st.text_area("AI:", value=message, disabled=True)
 
-# Clear chat button
-if st.button("Clear Chat"):
+# Reset Chat button
+if st.button("Reset Chat"):
+    # Clear chat history in UI
     st.session_state.chat_history = []
-    st.rerun()  # Changed from st.experimental_rerun()
+    
+    # Send reset signal to backend
+    get_ai_response("", reset=True)
+    
+    st.success("Chat has been reset!")
+    st.rerun()
 
 # Footer
 st.markdown("---")
