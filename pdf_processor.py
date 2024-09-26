@@ -1,76 +1,33 @@
 import os
-import yaml
-import sqlite3
-import PyPDF2
-from openai import AzureOpenAI
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import SQLiteVSS
-
-def load_config():
-    with open("config.yaml", "r") as f:
-        return yaml.safe_load(f)
+from PyPDF2 import PdfReader
+from text_processor import process_text, init_database, load_config
+from logger_config import LoggerConfig
 
 config = load_config()
 
-# Initialize Azure OpenAI client
-client = AzureOpenAI(
-    api_key=config['azure_openai_api_key'],
-    api_version="2023-05-15",
-    azure_endpoint=config['azure_openai_endpoint']
-)
+# Configure logging
+logger = LoggerConfig.setup_logger(__name__)
 
 def extract_text_from_pdf(pdf_path):
     with open(pdf_path, 'rb') as file:
-        reader = PyPDF2.PdfReader(file)
+        pdf = PdfReader(file)
         text = ""
-        for page in reader.pages:
+        for page in pdf.pages:
             text += page.extract_text()
     return text
 
-def create_chunks(text):
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=config['chunk_size'],
-        chunk_overlap=config['chunk_overlap'],
-        length_function=len
-    )
-    return text_splitter.split_text(text)
+def process_pdf_files(folder_path):
+    init_database()
 
-def get_embeddings(texts):
-    embeddings = []
-    for text in texts:
-        response = client.embeddings.create(input=text, model=config['embedding_model'])
-        embeddings.append(response.data[0].embedding)
-    return embeddings
+    for filename in os.listdir(folder_path):
+        if filename.endswith(".pdf"):
+            file_path = os.path.join(folder_path, filename)
+            content = extract_text_from_pdf(file_path)
+            
+            process_text(content, filename)
 
-def process_pdfs():
-    pdf_folder = config['pdf_folder']
-    db_path = config['database_path']
-
-    # Initialize SQLite database with vector search capability
-    conn = sqlite3.connect(db_path)
-    conn.enable_load_extension(True)
-    conn.load_extension("sqlite_vss")
-
-    # Create table for storing document chunks and vectors
-    conn.execute('''CREATE TABLE IF NOT EXISTS documents
-                    (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                     content TEXT,
-                     embedding BLOB)''')
-
-    for filename in os.listdir(pdf_folder):
-        if filename.endswith('.pdf'):
-            pdf_path = os.path.join(pdf_folder, filename)
-            text = extract_text_from_pdf(pdf_path)
-            chunks = create_chunks(text)
-            embeddings = get_embeddings(chunks)
-
-            # Store chunks and embeddings in the database
-            for chunk, embedding in zip(chunks, embeddings):
-                conn.execute('INSERT INTO documents (content, embedding) VALUES (?, ?)',
-                             (chunk, sqlite3.Binary(bytes(embedding))))
-
-    conn.commit()
-    conn.close()
+    logger.info("PDF processing, chunking, and embedding generation complete.")
 
 if __name__ == "__main__":
-    process_pdfs()
+    pdf_folder = config['pdf_folder']
+    process_pdf_files(pdf_folder)

@@ -39,7 +39,7 @@ wheels/
 # Project-specific files and directories
 config.yaml
 vectordb.sqlite
-texts/
+#texts/
 pdfs/
 
 # Logs
