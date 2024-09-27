@@ -120,7 +120,7 @@ This project is open source and available under the [MIT License](LICENSE).
 
 ## Local Text Processing with Ollama
 
-This project now includes an option for local text processing using Ollama with the Llama2 model:
+This project now includes an option for local text processing using Ollama with the Llama3 model:
 
 1. Install Ollama:
    - For macOS or Linux:
@@ -130,9 +130,9 @@ This project now includes an option for local text processing using Ollama with 
    - For Windows:
      Download the installer from [Ollama's official website](https://ollama.ai/download)
 
-2. Install the Llama2 model:
+2. Install the Llama3 model:
    ```bash
-   ollama pull llama2
+   ollama pull llama3.1
    ```
 
 3. Start the Ollama server:
@@ -144,7 +144,7 @@ This project now includes an option for local text processing using Ollama with 
    ```yaml
    # Ollama Configuration
    ollama_api_url: "http://localhost:11434/api/embeddings"
-   ollama_model: "llama2"
+   ollama_model: "llama3"
    ```
 
 5. Run the local text processor:

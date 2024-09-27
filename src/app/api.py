@@ -1,11 +1,11 @@
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 import numpy as np
-from database_manager import DatabaseManager
-from embedding_cache import EmbeddingCache
+from src.common.database_manager import DatabaseManager
+from src.common.embedding_cache import EmbeddingCache
 import yaml
-from ai_service import get_ai_service, AIService
-from logger_config import LoggerConfig
+from src.graphrag.langchain_ai_service import get_langchain_ai_service
+from src.common.logger_config import LoggerConfig
 import time
 import uvicorn
 
@@ -26,13 +26,14 @@ class ChatRequest(BaseModel):
     message: str
     reset: bool = False
 
-ai_service = get_ai_service()  # Initialize the AI service once
+ai_service = get_langchain_ai_service(config['ai_service'])
 
 @app.on_event("startup")
 async def startup_event():
     logger.info("Starting up the application")
     embedding_cache.cache_embeddings()
 
+# Existing chat endpoint
 @app.post("/chat")
 async def chat(request: ChatRequest):
     if request.reset:
@@ -69,6 +70,64 @@ async def chat(request: ChatRequest):
     
     total_time = time.time() - start_time
     logger.info(f"Total request processing time: {total_time:.2f} seconds")
+
+    return {
+        "response": response,
+        "sources": sources
+    }
+
+# New RAG chat endpoint
+def retrieve_relevant_subgraph(query: str, top_k: int = 5):
+    query_embedding = ai_service.get_embedding(query)
+    similar_docs = db_manager.find_similar_documents(query_embedding, top_k)
+    subgraph = db_manager.get_subgraph_for_documents(similar_docs)
+    return subgraph, similar_docs
+
+def subgraph_to_context(subgraph, similar_docs):
+    context = "Relevant information:\n"
+    for node in subgraph['nodes']:
+        context += f"- {node[2]}: {node[1]}\n"
+    for rel in subgraph['relationships']:
+        context += f"- {rel[1]} {rel[3]} {rel[2]}\n"
+    
+    context += "\nRelevant document excerpts:\n"
+    for doc in similar_docs:
+        content = db_manager.get_document_content(doc[1], doc[2])
+        context += f"- {content[:200]}...\n"
+    
+    return context
+
+@app.post("/rag-chat")
+async def rag_chat(request: ChatRequest):
+    if request.reset:
+        ai_service.clear_conversation_history()
+        logger.info("RAG chat history has been reset")
+        return {"response": "RAG chat history has been cleared."}
+
+    start_time = time.time()
+    user_input = request.message
+    
+    logger.info(f"Received RAG chat request: {user_input[:50]}...")
+
+    subgraph_start = time.time()
+    subgraph, similar_docs = retrieve_relevant_subgraph(user_input, config['top_k'])
+    subgraph_time = time.time() - subgraph_start
+    logger.info(f"Subgraph retrieval took {subgraph_time:.2f} seconds")
+
+    context_start = time.time()
+    context = subgraph_to_context(subgraph, similar_docs)
+    context_time = time.time() - context_start
+    logger.info(f"Context generation took {context_time:.2f} seconds")
+    
+    response_start = time.time()
+    response = ai_service.generate_response(user_input, context)
+    response_time = time.time() - response_start
+    logger.info(f"Response generation took {response_time:.2f} seconds")
+
+    sources = [{"filename": doc[1], "chunk_index": doc[2]} for doc in similar_docs]
+    
+    total_time = time.time() - start_time
+    logger.info(f"Total RAG request processing time: {total_time:.2f} seconds")
 
     return {
         "response": response,

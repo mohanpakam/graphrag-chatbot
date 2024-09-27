@@ -15,3 +15,5 @@ PyPDF2
 langchain
 langchain-community
 tiktoken
+langchain_experimental
+json-repair

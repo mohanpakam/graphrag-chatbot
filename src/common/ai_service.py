@@ -5,9 +5,9 @@ from openai import AzureOpenAI
 import ollama
 import yaml
 import time
-from logger_config import LoggerConfig
-from base_ai_service import AIService
-from langchain_ai_service import get_langchain_ai_service
+from src.common.logger_config import LoggerConfig
+from src.common.base_ai_service import AIService
+from src.graphrag.langchain_ai_service import get_langchain_ai_service
 
 def load_config():
     try:
@@ -25,7 +25,7 @@ class OllamaService(AIService):
     def __init__(self, model: str = None):
         self.model = model or config.get('ollama_model', 'llama3.1')
         # You might need to have a mapping of Ollama models to their embedding dimensions
-        self.embedding_dims = {"llama3.1": 4096}  # Example, fill with actual values
+        self.embedding_dims = {"llama3.2": 4096}  # Example, fill with actual values
 
     def get_embedding(self, text: str) -> List[float]:
         start_time = time.time()
