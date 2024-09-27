@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 import yaml
-from src.common.database_manager import DatabaseManager
+from database_manager import DatabaseManager
 
 def load_config():
     with open("config.yaml", "r") as f:

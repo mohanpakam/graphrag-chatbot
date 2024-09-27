@@ -1,7 +1,7 @@
 import os
 from PyPDF2 import PdfReader
-from tests.text_processor import process_text, init_database, load_config
-from src.common.logger_config import LoggerConfig
+from text_processor import process_text, init_database, load_config
+from logger_config import LoggerConfig
 
 config = load_config()
 

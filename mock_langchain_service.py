@@ -1,8 +1,8 @@
 from typing import List, Dict, Any
-from langchain.schema import BaseMessage, HumanMessage, AIMessage, Document
+from langchain.schema import Document
 from langchain.llms.base import LLM
 from langchain.embeddings.base import Embeddings
-from src.graphrag.base_langchain_service import BaseLangChainAIService
+from base_langchain_service import BaseLangChainAIService
 
 class MockLLM(LLM):
     def _call(self, prompt: str, stop: List[str] = None) -> str:

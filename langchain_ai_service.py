@@ -5,9 +5,9 @@ from langchain_community.embeddings import OpenAIEmbeddings, AzureOpenAIEmbeddin
 from langchain_community.llms import Ollama
 from langchain.chains import ConversationChain
 from langchain.memory import ConversationBufferMemory
-from src.graphrag.base_langchain_service import BaseLangChainAIService
+from base_langchain_service import BaseLangChainAIService
 import yaml
-from src.common.logger_config import LoggerConfig
+from logger_config import LoggerConfig
 from langchain.callbacks.manager import CallbackManager
 
 def load_config():
@@ -102,7 +102,7 @@ def get_langchain_ai_service(service_type: str, callback_manager: CallbackManage
     elif service_type == 'openai':
         return OpenAILangChainAIService(callback_manager)
     elif service_type == 'mock':
-        from src.graphrag.mock_langchain_service import MockLangChainAIService
+        from mock_langchain_service import MockLangChainAIService
         return MockLangChainAIService()
     else:
         error_msg = f"Unknown LangChain AI service type: {service_type}"

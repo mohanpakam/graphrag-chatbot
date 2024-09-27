@@ -1,9 +1,9 @@
 import spacy
 import numpy as np
-from src.common.database_manager import DatabaseManager
-from src.common.ai_service import get_ai_service
+from database_manager import DatabaseManager
+from ai_service import get_ai_service
 import yaml
-from src.common.logger_config import LoggerConfig
+from logger_config import LoggerConfig
 
 def load_config():
     with open("config.yaml", "r") as f:

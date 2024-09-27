@@ -5,9 +5,9 @@ from openai import AzureOpenAI
 import ollama
 import yaml
 import time
-from src.common.logger_config import LoggerConfig
-from src.common.base_ai_service import AIService
-from src.graphrag.langchain_ai_service import get_langchain_ai_service
+from logger_config import LoggerConfig
+from base_ai_service import AIService
+from langchain_ai_service import get_langchain_ai_service
 
 def load_config():
     try:

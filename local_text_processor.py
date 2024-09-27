@@ -1,8 +1,12 @@
 import os
-from tests.text_processor import process_text, init_database, load_config
-from src.common.logger_config import LoggerConfig
-from src.common.database_manager import DatabaseManager
-from src.graphrag.langchain_ai_service import get_langchain_ai_service
+import yaml
+from logger_config import LoggerConfig
+from database_manager import DatabaseManager
+from langchain_ai_service import get_langchain_ai_service
+
+def load_config():
+    with open("config.yaml", "r") as f:
+        return yaml.safe_load(f)
 
 config = load_config()
 
@@ -41,6 +45,11 @@ def process_text_files(folder_path):
                 logger.info(f"Processed and stored chunk {i} from {filename}")
 
     logger.info("Text processing, chunking, and embedding generation complete.")
+
+def process_text(text: str, filename: str):
+    # Implement your text processing logic here
+    # This function should return a list of chunks
+    pass
 
 if __name__ == "__main__":
     text_folder = config['text_folder']

@@ -1,11 +1,11 @@
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 import numpy as np
-from src.common.database_manager import DatabaseManager
-from src.common.embedding_cache import EmbeddingCache
+from database_manager import DatabaseManager
+from embedding_cache import EmbeddingCache
 import yaml
-from src.graphrag.langchain_ai_service import get_langchain_ai_service
-from src.common.logger_config import LoggerConfig
+from langchain_ai_service import get_langchain_ai_service
+from logger_config import LoggerConfig
 import time
 import uvicorn
 

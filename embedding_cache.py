@@ -2,9 +2,9 @@ import sqlite3
 import sqlite_vec
 from typing import List, Tuple
 import struct
-from src.common.database_manager import DatabaseManager
-from src.common.ai_service import get_ai_service
-from src.common.logger_config import LoggerConfig
+from database_manager import DatabaseManager
+from ai_service import get_ai_service
+from logger_config import LoggerConfig
 
 logger = LoggerConfig.setup_logger(__name__)
 

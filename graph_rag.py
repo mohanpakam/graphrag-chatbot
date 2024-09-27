@@ -1,5 +1,5 @@
-from src.common.database_manager import DatabaseManager
-from src.graphrag.langchain_ai_service import get_langchain_ai_service
+from database_manager import DatabaseManager
+from langchain_ai_service import get_langchain_ai_service
 import yaml
 
 def load_config():
