@@ -11,6 +11,10 @@ import json
 import logging
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
+from langchain.memory import ConversationBufferMemory
+from langchain.chains import ConversationalRetrievalChain
+from langchain.vectorstores import Chroma
+from langchain.embeddings import OllamaEmbeddings
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -31,6 +35,12 @@ graph_transformer = LLMGraphTransformer(llm=llm)
 # Initialize SQLite database
 conn = sqlite3.connect('ollama_vss.db')
 cursor = conn.cursor()
+
+# Initialize memory
+memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+
+# Initialize vector store
+vectorstore = Chroma(embedding_function=embeddings, persist_directory="./chroma_db")
 
 def init_database():
     logging.info("Initializing database...")
@@ -123,75 +133,25 @@ def process_text(text: str):
         embedding = create_embedding(chunk.page_content)
         graph = create_graph(chunk)
         store_document(chunk.page_content, embedding, graph)
+        # Add document to vector store
+        vectorstore.add_texts([chunk.page_content], metadatas=[{"id": str(i)}])
     
-    logging.info("Text processing completed.")
-    
-def process_text2(text: str):
-    logging.info("Processing text...")
-    init_database()
-    document = Document(page_content=text)
-    graph = create_graph(document)
-    embedding = create_embedding(text)
-    store_document(document.page_content, embedding, graph)
+    vectorstore.persist()
     logging.info("Text processing completed.")
 
-def similarity_search(query: str, k: int = 5):
-    logging.info(f"Performing similarity search for query: '{query}'")
-    query_embedding = create_embedding(query)
-    
-    cursor.execute('''
-    SELECT id, content, embedding
-    FROM documents
-    ''')
-    
-    results = []
-    for doc_id, content, embedding_json in cursor.fetchall():
-        embedding = json.loads(embedding_json)
-        similarity = cosine_similarity(query_embedding, embedding)
-        results.append((doc_id, content, similarity))
-    
-    results.sort(key=lambda x: x[2], reverse=True)
-    logging.info(f"Found {len(results)} similar documents.")
-    return results[:k]
-
-def cosine_similarity(v1, v2):
-    dot_product = sum(x*y for x, y in zip(v1, v2))
-    magnitude1 = sum(x*x for x in v1) ** 0.5
-    magnitude2 = sum(x*x for x in v2) ** 0.5
-    return dot_product / (magnitude1 * magnitude2)
-
-def get_graph_data(document_id):
-    logging.info(f"Retrieving graph data for document ID: {document_id}")
-    nodes = []
-    relationships = []
-    
-    cursor.execute('SELECT node_id, node_type, properties FROM graph_nodes WHERE document_id = ?', (document_id,))
-    for node_id, node_type, properties in cursor.fetchall():
-        nodes.append(f"Node: {node_id}, Type: {node_type}, Properties: {properties}")
-    
-    cursor.execute('SELECT source_id, target_id, relationship_type, properties FROM graph_relationships WHERE document_id = ?', (document_id,))
-    for source_id, target_id, rel_type, properties in cursor.fetchall():
-        relationships.append(f"Relationship: {source_id} -> {target_id}, Type: {rel_type}, Properties: {properties}")
-    
-    return "\n".join(nodes + relationships)
-
-def generate_response(query: str, k: int = 5):
+def generate_response(query: str):
     logging.info(f"Generating response for query: '{query}'")
-    results = similarity_search(query, k)
     
-    context = ""
-    for i, (doc_id, content, similarity) in enumerate(results, 1):
-        context += f"Document {i}:\n{content}\n\n"
-        graph_data = get_graph_data(doc_id)
-        context += f"Graph Data for Document {i}:\n{graph_data}\n\n"
-    
-    prompt_template = PromptTemplate(
-        input_variables=["context", "query"],
-        template="Based on the following context and graph data:\n\n{context}\n\nAnswer the following question: {query}"
+    qa_chain = ConversationalRetrievalChain.from_llm(
+        llm=llm,
+        retriever=vectorstore.as_retriever(),
+        memory=memory,
+        get_chat_history=lambda h: h,
+        verbose=True
     )
     
-    chain = LLMChain(llm=llm, prompt=prompt_template)
-    response = chain.run(context=context, query=query)
+    result = qa_chain({"question": query})
+    response = result['answer']
     
     logging.info("Response generated successfully.")
     return response
@@ -222,13 +182,19 @@ Despite these challenges, many countries are making significant strides in renew
 Investing in sustainable energy is not just an environmental imperative but also an economic opportunity that can drive innovation and growth in the coming decades.
     """
     
-    process_text2(sample_text)
+    process_text(sample_text)
     
-    query = "sustainable energy difficulties?"
-    response = generate_response(query)
+    while True:
+        query = input("Enter your question (or 'quit' to exit): ")
+        if query.lower() == 'quit':
+            break
+        
+        response = generate_response(query)
+        
+        logging.info(f"Query: {query}")
+        logging.info(f"Response: {response}")
+        print(f"\nResponse: {response}\n")
     
-    logging.info(f"Query: {query}")
-    logging.info(f"Response: {response}")
-    
+    vectorstore.persist()  # Save the vector store to disk
     conn.close()
     logging.info("Program completed.")
