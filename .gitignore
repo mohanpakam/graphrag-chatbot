@@ -60,3 +60,4 @@ Thumbs.db
 
 # Ollama-related files (if any)
 ollama/
+ollama_vss.db

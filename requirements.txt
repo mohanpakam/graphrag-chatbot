@@ -17,3 +17,6 @@ langchain-community
 tiktoken
 langchain_experimental
 json-repair
+google-auth
+google-cloud-aiplatform
+langchain-google-vertexai
