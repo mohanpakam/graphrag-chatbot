@@ -8,6 +8,7 @@ import time
 from logger_config import LoggerConfig
 from base_ai_service import AIService
 from langchain_ai_service import get_langchain_ai_service
+from langchain_community.embeddings import OllamaEmbeddings
 
 def load_config():
     try:
@@ -24,15 +25,14 @@ logger = LoggerConfig.setup_logger(__name__)
 class OllamaService(AIService):
     def __init__(self, model: str = None):
         self.model = model or config.get('ollama_model', 'llama3.1')
-        # You might need to have a mapping of Ollama models to their embedding dimensions
-        self.embedding_dims = {"llama3.2": 4096}  # Example, fill with actual values
+        self.embeddings = OllamaEmbeddings(model=self.model)
 
     def get_embedding(self, text: str) -> List[float]:
         start_time = time.time()
-        response = ollama.embeddings(model=self.model, prompt=text)
+        embedding = self.embeddings.embed_query(text)
         duration = time.time() - start_time
         logger.info(f"Ollama embedding generation took {duration:.2f} seconds")
-        return response['embedding']
+        return embedding
 
     def generate_response(self, prompt: str, context: str) -> str:
         start_time = time.time()
@@ -45,11 +45,17 @@ class OllamaService(AIService):
         return response['response'].strip()
 
     def get_embedding_dim(self) -> int:
-        return self.embedding_dims.get(self.model, 4096)  # Default to 4096 if unknown
+        # You might need to have a mapping of Ollama models to their embedding dimensions
+        # or generate a dummy embedding to get the dimension
+        dummy_embedding = self.get_embedding("dummy text")
+        return len(dummy_embedding)
 
     def clear_conversation_history(self):
         # Ollama doesn't maintain conversation history by default
         pass
+
+    def embed_documents(self, documents: List[str]) -> List[List[float]]:
+        return self.embeddings.embed_documents(documents)
 
 class AzureOpenAIService(AIService):
     def __init__(self, api_key: str = None, endpoint: str = None, 
@@ -112,6 +118,13 @@ class AzureOpenAIService(AIService):
     def clear_conversation_history(self):
         # Azure OpenAI doesn't maintain conversation history by default
         pass
+
+    def embed_documents(self, documents: List[str]) -> List[List[float]]:
+        response = self.client.embeddings.create(
+            input=documents,
+            model=self.embedding_deployment
+        )
+        return [item.embedding for item in response.data]
 
 def get_ai_service() -> AIService:
     service_type = config.get('ai_service', 'ollama')

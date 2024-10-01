@@ -67,11 +67,12 @@ class DatabaseManager:
 
     def store_graph_document(self, doc_data):
         with self.connect() as conn:
-            conn.execute('''
+            cursor = conn.execute('''
                 INSERT INTO documents (filename, chunk_index, content, embedding)
                 VALUES (?, ?, ?, ?)
             ''', (doc_data['filename'], doc_data['chunk_index'], doc_data['content'], 
-                  np.array(doc_data['embedding']).tobytes()))
+                  json.dumps(doc_data['embedding'])))
+            return cursor.lastrowid
 
     def store_node(self, node_data):
         with self.connect() as conn:
@@ -119,22 +120,25 @@ class DatabaseManager:
             ''', (query_embedding_bytes, top_k))
             return cursor.fetchall()
 
+    def get_document_content(self, doc_id):
+        with self.connect() as conn:
+            cursor = conn.execute('SELECT content FROM documents WHERE id = ?', (doc_id,))
+            result = cursor.fetchone()
+            return result[0] if result else None
+
     def get_subgraph_for_documents(self, doc_ids):
         with self.connect() as conn:
-            cursor = conn.cursor()
             placeholders = ','.join('?' for _ in doc_ids)
-            cursor.execute(f'''
+            nodes = conn.execute(f'''
                 SELECT * FROM nodes
-                WHERE (document_filename, document_index) IN ({placeholders})
-            ''', doc_ids)
-            nodes = cursor.fetchall()
-
-            cursor.execute(f'''
+                WHERE document_filename || '_' || document_index IN ({placeholders})
+            ''', doc_ids).fetchall()
+            
+            relationships = conn.execute(f'''
                 SELECT * FROM relationships
-                WHERE (document_filename, document_index) IN ({placeholders})
-            ''', doc_ids)
-            relationships = cursor.fetchall()
-
+                WHERE document_filename || '_' || document_index IN ({placeholders})
+            ''', doc_ids).fetchall()
+            
         return {'nodes': nodes, 'relationships': relationships}
 
     def get_document_content(self, filename, chunk_index):

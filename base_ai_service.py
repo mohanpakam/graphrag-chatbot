@@ -17,3 +17,7 @@ class AIService(ABC):
     @abstractmethod
     def clear_conversation_history(self):
         pass
+
+    @abstractmethod
+    def embed_documents(self, documents: List[str]) -> List[List[float]]:
+        pass

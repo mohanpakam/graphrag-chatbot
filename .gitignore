@@ -61,3 +61,9 @@ Thumbs.db
 # Ollama-related files (if any)
 ollama/
 ollama_vss.db
+vector_store.db
+chroma_db/chroma.sqlite3
+chroma_db/d7bc9322-bd40-4cfb-8fa7-5878fe49af6a/data_level0.bin
+chroma_db/d7bc9322-bd40-4cfb-8fa7-5878fe49af6a/header.bin
+chroma_db/d7bc9322-bd40-4cfb-8fa7-5878fe49af6a/length.bin
+chroma_db/d7bc9322-bd40-4cfb-8fa7-5878fe49af6a/link_lists.bin

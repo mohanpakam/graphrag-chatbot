@@ -1,68 +1,33 @@
-import spacy
-import numpy as np
-from database_manager import DatabaseManager
-from ai_service import get_ai_service
-import yaml
-from logger_config import LoggerConfig
-
-def load_config():
-    with open("config.yaml", "r") as f:
-        return yaml.safe_load(f)
-
-config = load_config()
+import logging
+from typing import List
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.schema import Document
+from langchain_community.embeddings import OllamaEmbeddings
 
 # Configure logging
-logger = LoggerConfig.setup_logger(__name__)
+logger = logging.getLogger(__name__)
 
-# Load spaCy model
-nlp = spacy.load("en_core_web_lg")
+class TextProcessor:
+    def __init__(self, chunk_size=1000, chunk_overlap=200, model="llama3.2"):
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+        )
+        self.embeddings = OllamaEmbeddings(model=model)
 
-# Initialize the AI service
-ai_service = get_ai_service()
+    def chunk_text(self, text: str) -> List[Document]:
+        logger.info("Chunking text...")
+        chunks = self.text_splitter.create_documents([text])
+        logger.info(f"Text chunked into {len(chunks)} documents.")
+        return chunks
 
-db_manager = DatabaseManager(config['database_path'])
-
-def chunk_text(text, chunk_size, chunk_overlap):
-    doc = nlp(text)
-    sentences = list(doc.sents)
-    chunks = []
-    current_chunk = []
-    current_chunk_size = 0
-
-    for sentence in sentences:
-        sentence_text = sentence.text.strip()
-        sentence_length = len(sentence_text)
-
-        if current_chunk_size + sentence_length <= chunk_size:
-            current_chunk.append(sentence_text)
-            current_chunk_size += sentence_length
-        else:
-            if current_chunk:
-                chunks.append(" ".join(current_chunk))
-            current_chunk = [sentence_text]
-            current_chunk_size = sentence_length
-
-        # Check for overlap
-        while current_chunk_size > chunk_overlap and len(current_chunk) > 1:
-            removed_sentence = current_chunk.pop(0)
-            current_chunk_size -= len(removed_sentence)
-
-    if current_chunk:
-        chunks.append(" ".join(current_chunk))
-
-    # Handle case where a single sentence is longer than chunk_size
-    if not chunks and sentences:
-        chunks = [sentences[0].text.strip()]
-
-    return chunks
-
-def process_text(text: str, filename: str) -> List[str]:
-    chunks = chunk_text(text)
-    return chunks
+    def create_embedding(self, text: str) -> List[float]:
+        logger.info("Creating embedding...")
+        embedding = self.embeddings.embed_query(text)
+        logger.info("Embedding created successfully.")
+        return embedding
 
 def init_database():
-    # Initialize the database and create tables
-    db_manager.init_database()
-    
-    # Clear existing documents (optional, comment out if you want to keep existing documents)
-    db_manager.clear_documents()
+    # This function seems out of place in TextProcessor. Consider moving it to a database management module.
+    logger.warning("init_database() called in TextProcessor. Consider moving this functionality.")
+    pass
