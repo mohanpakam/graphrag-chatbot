@@ -22,3 +22,4 @@ google-cloud-aiplatform
 langchain-google-vertexai
 langgraph
 langchain-chroma
+faiss-cpu

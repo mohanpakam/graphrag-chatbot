@@ -1,56 +1,40 @@
-import os
-import yaml
-from logger_config import LoggerConfig
-from database_manager import DatabaseManager
-from langchain_ai_service import get_langchain_ai_service
+from local_llama_processor import LocalLlamaProcessor
+import logging
 
-def load_config():
-    with open("config.yaml", "r") as f:
-        return yaml.safe_load(f)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-config = load_config()
+def main():
+    logger.info("Starting the Local Text Processor...")
+    
+    processor = LocalLlamaProcessor()
+    
+    # Sample text to process
+    sample_text = """
+    On 27th of September 2023, The devastation in North Carolina in the wake of Hurricane Helene could have serious implications for a niche — but extremely important — corner of the tech industry.
 
-# Configure logging
-logger = LoggerConfig.setup_logger(__name__)
+    Tucked in the Blue Ridge Mountains on the outskirts of Spruce Pine, a town of less than 2,200, are two mines that produce the world's purest quartz, which formed in the area some 380 million years ago. The material is a key component in the global supply chain for semiconductor chips, which power everything from smartphones and cars to medical devices and solar panels.
 
-# Initialize database manager and AI service
-db_manager = DatabaseManager(config['database_path'])
-ai_service = get_langchain_ai_service(config['ai_service'])
-
-def process_text_files(folder_path):
-    db_manager.init_database()
-
-    for filename in os.listdir(folder_path):
-        if filename.endswith(".txt"):
-            file_path = os.path.join(folder_path, filename)
-            with open(file_path, 'r', encoding='utf-8') as file:
-                content = file.read()
-            
-            # Process text and get chunks
-            chunks = process_text(content, filename)
-            
-            for i, chunk in enumerate(chunks):
-                # Generate embedding for the chunk
-                embedding = ai_service.get_embedding(chunk)
-                
-                # Store the document with embedding
-                doc_data = {
-                    'filename': filename,
-                    'chunk_index': i,
-                    'content': chunk,
-                    'embedding': embedding
-                }
-                db_manager.store_graph_document(doc_data)
-                
-                logger.info(f"Processed and stored chunk {i} from {filename}")
-
-    logger.info("Text processing, chunking, and embedding generation complete.")
-
-def process_text(text: str, filename: str):
-    # Implement your text processing logic here
-    # This function should return a list of chunks
-    pass
+    But operations at the facilities have halted since Hurricane Helene tore through the southeast United States over the weekend, causing historic flooding and landslides, cutting off roads and power and endangering millions of residents.
+    """
+    
+    # Process the sample text
+    processor.process_text(sample_text, "sample_document.txt")
+    
+    logger.info("Sample text processed. Starting user query loop...")
+    
+    while True:
+        query = input("Enter your question (or 'quit' to exit): ")
+        if query.lower() == 'quit':
+            break
+        
+        response = processor.graph_rag.process_query(query)
+        
+        logger.info(f"Query: {query}")
+        logger.info(f"Response: {response}")
+        print(f"\nResponse: {response}\n")
+    
+    logger.info("Local Text Processor completed.")
 
 if __name__ == "__main__":
-    text_folder = config['text_folder']
-    process_text_files(text_folder)
+    main()
