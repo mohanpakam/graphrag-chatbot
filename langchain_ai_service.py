@@ -12,6 +12,9 @@ from langchain.callbacks.manager import CallbackManager
 from google.oauth2 import service_account
 from langchain_google_vertexai import VertexAI
 from langchain_google_vertexai import VertexAIEmbeddings
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+import os
 
 def load_config():
     with open("config.yaml", "r") as f:
@@ -99,11 +102,17 @@ class VertexGeminiLangChainAIService(BaseLangChainAIService):
     def __init__(self, callback_manager=None):
         logger.info("Initializing VertexGeminiLangChainAIService")
         
-        # Load credentials from the service account file
-        credentials = service_account.Credentials.from_service_account_file(
-            config['vertex_ai_service_account_file'],
-            scopes=['https://www.googleapis.com/auth/cloud-platform']
-        )
+        # Use the token from environment variable
+        token = os.environ.get('VERTEX_AI_TOKEN')
+        if not token:
+            raise ValueError("Vertex AI token not found. Please provide a valid token.")
+        
+        # Create credentials using the token
+        credentials = Credentials(token=token)
+        
+        # Refresh the token if it's expired
+        if credentials.expired:
+            credentials.refresh(Request())
         
         # Initialize Vertex AI LLM
         llm = VertexAI(

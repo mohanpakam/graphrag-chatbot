@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from pydantic import BaseModel
 import numpy as np
 from database_manager import DatabaseManager
@@ -8,6 +8,7 @@ from langchain_ai_service import get_langchain_ai_service
 from logger_config import LoggerConfig
 import time
 import uvicorn
+import os
 
 app = FastAPI()
 
@@ -25,17 +26,38 @@ logger = LoggerConfig.setup_logger(__name__)
 class ChatRequest(BaseModel):
     message: str
     reset: bool = False
+    vertex_ai_token: str = None
 
-ai_service = get_langchain_ai_service(config['ai_service'])
+ai_service = None
 
 @app.on_event("startup")
 async def startup_event():
     logger.info("Starting up the application")
     embedding_cache.cache_embeddings()
 
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(process_time)
+    return response
+
 # Existing chat endpoint
 @app.post("/chat")
 async def chat(request: ChatRequest):
+    global ai_service
+
+    # Update the Vertex AI token if provided
+    if request.vertex_ai_token:
+        os.environ['VERTEX_AI_TOKEN'] = request.vertex_ai_token
+        # Reinitialize the AI service with the new token
+        ai_service = get_langchain_ai_service(config['ai_service'])
+        logger.info("Updated Vertex AI token and reinitialized AI service")
+
+    if ai_service is None:
+        ai_service = get_langchain_ai_service(config['ai_service'])
+
     if request.reset:
         if hasattr(ai_service, 'clear_conversation_history'):
             ai_service.clear_conversation_history()

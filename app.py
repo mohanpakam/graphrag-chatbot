@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import yaml
 from database_manager import DatabaseManager
+import os
 
 def load_config():
     with open("config.yaml", "r") as f:
@@ -12,6 +13,16 @@ config = load_config()
 # Set page config
 st.set_page_config(page_title="AI Chatbot", page_icon="🤖", layout="wide")
 
+# Ask for Google Vertex AI token
+if 'vertex_ai_token' not in st.session_state:
+    st.session_state.vertex_ai_token = st.text_input("Enter your Google Vertex AI token:", type="password")
+    if st.session_state.vertex_ai_token:
+        os.environ['VERTEX_AI_TOKEN'] = st.session_state.vertex_ai_token
+        st.success("Token saved. You can now use the chatbot.")
+    else:
+        st.warning("Please enter a valid token to use the chatbot.")
+        st.stop()
+
 # Initialize session state for chat history if it doesn't exist
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
@@ -19,9 +30,13 @@ if 'chat_history' not in st.session_state:
 # Function to send user input to the backend API and get response
 def get_ai_response(user_input, reset=False):
     api_url = f"{config['backend_api_url']}/chat"
-    payload = {"message": user_input, "reset": reset}
+    payload = {
+        "message": user_input, 
+        "reset": reset,
+        "vertex_ai_token": st.session_state.vertex_ai_token
+    }
     response = requests.post(api_url, json=payload)
-    print("Request sent to API:", payload)
+    print("Request sent to API:", {**payload, "vertex_ai_token": "***"})  # Hide token in logs
     print("Response received from API:", response.json())
     return response.json()["response"]
 
