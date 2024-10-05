@@ -14,51 +14,94 @@ class PDFExtractor:
         self.doc = fitz.open(self.pdf_path)
         self.extracted_data = {
             'text': [],
-            'tables': [],
-            'images': []
+            'tables': []
         }
         self.db_manager = DBManager('sales_report.db')
+        self.current_large_table = None
 
     def extract_content(self):
+        self.extract_text_and_tables()
+        self.finalize_large_table()
+
+    def extract_text_and_tables(self):
         for page_num in range(len(self.doc)):
             page = self.doc[page_num]
-            self.extract_text(page, page_num)
-            self.extract_tables(page, page_num)
-            self.extract_images(page, page_num)
+            text, page_tables = self.process_page(page, page_num)
+            
+            self.extracted_data['text'].append({
+                'page': page_num + 1,
+                'content': text
+            })
+            
+            self.process_tables(page_tables, page_num)
 
-    def extract_text(self, page, page_num):
+    def process_page(self, page, page_num):
         text = page.get_text()
-        self.extracted_data['text'].append({
-            'page': page_num + 1,
-            'content': text
-        })
-
-    def extract_tables(self, page, page_num):
         tables = page.find_tables()
+        processed_tables = []
+        
         for table in tables.tables:
             extracted_table = table.extract()
             if extracted_table:
-                headers = extracted_table[0]
-                data = extracted_table[1:]
-                df = pd.DataFrame(data, columns=headers)
-                self.extracted_data['tables'].append({
+                bbox = table.bbox
+                processed_tables.append({
                     'page': page_num + 1,
-                    'headers': headers,
-                    'content': df.to_dict('records')
+                    'content': extracted_table,
+                    'bbox': {
+                        'x0': bbox[0] if isinstance(bbox, tuple) else bbox.x0,
+                        'y0': bbox[1] if isinstance(bbox, tuple) else bbox.y0,
+                        'x1': bbox[2] if isinstance(bbox, tuple) else bbox.x1,
+                        'y1': bbox[3] if isinstance(bbox, tuple) else bbox.y1
+                    }
                 })
-        logger.info(f"Extracted {len(tables.tables)} tables from page {page_num + 1}")
+        
+        processed_tables.sort(key=lambda t: (t['bbox']['y0'], t['bbox']['x0']))
+        
+        logger.info(f"Extracted {len(processed_tables)} tables from page {page_num + 1}")
+        return text, processed_tables
 
-    def extract_images(self, page, page_num):
-        images = page.get_images(full=True)
-        for img_index, img in enumerate(images):
-            xref = img[0]
-            base_image = self.doc.extract_image(xref)
-            image_bytes = base_image["image"]
-            self.extracted_data['images'].append({
-                'page': page_num + 1,
-                'index': img_index,
-                'bytes': image_bytes
-            })
+    def process_tables(self, page_tables, page_num):
+        for table in page_tables:
+            if self.is_continuation_of_large_table(table):
+                self.continue_large_table(table)
+            elif self.is_start_of_large_table(table):
+                self.start_large_table(table)
+            else:
+                # Ensure all tables have a consistent structure
+                processed_table = {
+                    'page': table['page'],
+                    'content': table['content'],
+                    'bbox': table['bbox']
+                }
+                if len(table['content']) > 0:
+                    processed_table['headers'] = table['content'][0]
+                    processed_table['content'] = table['content'][1:]
+                self.extracted_data['tables'].append(processed_table)
+
+    def is_start_of_large_table(self, table):
+        return len(table['content']) > 10 and self.current_large_table is None
+
+    def start_large_table(self, table):
+        self.current_large_table = {
+            'pages': [table['page']],
+            'headers': table['content'][0],
+            'content': table['content'][1:],
+            'bbox': table['bbox']
+        }
+
+    def is_continuation_of_large_table(self, table):
+        if not self.current_large_table:
+            return False
+        return len(table['content'][0]) == len(self.current_large_table['headers'])
+
+    def continue_large_table(self, table):
+        self.current_large_table['content'].extend(table['content'])
+        self.current_large_table['pages'].append(table['page'])
+
+    def finalize_large_table(self):
+        if self.current_large_table:
+            self.extracted_data['tables'].append(self.current_large_table)
+            self.current_large_table = None
 
     def to_json(self):
         return json.dumps(self.extracted_data, indent=2, default=str)
@@ -70,8 +113,16 @@ class PDFExtractor:
             html += f"<p>{text['content']}</p>"
         
         for table in self.extracted_data['tables']:
-            html += f"<h3>Table on Page {table['page']}</h3>"
-            df = pd.DataFrame(table['content'])
+            if 'pages' in table:
+                html += f"<h3>Table on Page(s) {', '.join(map(str, table['pages']))}</h3>"
+            else:
+                html += f"<h3>Table on Page {table['page']}</h3>"
+            
+            if 'headers' in table and table['headers']:
+                df = pd.DataFrame(table['content'], columns=table['headers'])
+            else:
+                df = pd.DataFrame(table['content'])
+            
             html += df.to_html(index=False)
         
         html += "</body></html>"
@@ -84,8 +135,16 @@ class PDFExtractor:
             md += f"{text['content']}\n\n"
         
         for table in self.extracted_data['tables']:
-            md += f"### Table on Page {table['page']}\n\n"
-            df = pd.DataFrame(table['content'])
+            if 'pages' in table:
+                md += f"### Table on Page(s) {', '.join(map(str, table['pages']))}\n\n"
+            else:
+                md += f"### Table on Page {table['page']}\n\n"
+            
+            if 'headers' in table and table['headers']:
+                df = pd.DataFrame(table['content'], columns=table['headers'])
+            else:
+                df = pd.DataFrame(table['content'])
+            
             md += tabulate(df, headers='keys', tablefmt='pipe') + "\n\n"
         
         return md
@@ -93,32 +152,27 @@ class PDFExtractor:
 def save_sales_report_to_db(extracted_content: Dict[str, Any], db_manager: DBManager):
     sales_data = []
     for table in extracted_content['tables']:
-        if table['page'] in [1, 2]:  # Only consider tables from pages 1 and 2
-            # Log the structure of the table content
-            logger.debug(f"Table content structure: {json.dumps(table['content'][0] if table['content'] else {}, indent=2)}")
-            
+        if 'headers' in table and any('sales' in header.lower() for header in table['headers']):
             for row in table['content']:
                 try:
                     sales_row = {
-                        'Month': row.get('Month', row.get('0', '')),  # Assume 'Month' might be labeled as '0'
-                        'Electronics': row.get('Electronics', row.get('1', '')),
-                        'Clothing': row.get('Clothing', row.get('2', '')),
-                        'Food': row.get('Food', row.get('3', '')),
-                        'Books': row.get('Books', row.get('4', '')),
-                        'Total': row.get('Total', row.get('5', ''))
+                        'Month': row[0],
+                        'Electronics': row[1] if len(row) > 1 else '',
+                        'Clothing': row[2] if len(row) > 2 else '',
+                        'Food': row[3] if len(row) > 3 else '',
+                        'Books': row[4] if len(row) > 4 else '',
+                        'Total': row[-1]
                     }
                     sales_data.append(sales_row)
-                except KeyError as e:
-                    logger.error(f"KeyError when processing row: {row}. Error: {str(e)}")
                 except Exception as e:
-                    logger.error(f"Unexpected error when processing row: {row}. Error: {str(e)}")
+                    logger.error(f"Error processing row: {row}. Error: {str(e)}")
     
     if sales_data:
         db_manager.create_sales_report_table()
         db_manager.insert_sales_report_data(sales_data)
         logger.info(f"Sales Report data saved to database. Rows inserted: {len(sales_data)}")
     else:
-        logger.warning("No Sales Report data found on pages 1 or 2")
+        logger.warning("No Sales Report data found in the extracted content")
 
 # Usage
 if __name__ == "__main__":
@@ -129,8 +183,8 @@ if __name__ == "__main__":
     extractor.extract_content()
     
     # Log extracted content for debugging
-    logger.debug(f"Extracted text: {extractor.extracted_data['text']}")
-    logger.debug(f"Extracted tables: {extractor.extracted_data['tables']}")
+    logger.debug(f"Extracted text: {json.dumps(extractor.extracted_data['text'], indent=2)}")
+    logger.debug(f"Extracted tables: {json.dumps(extractor.extracted_data['tables'], indent=2)}")
 
     # Save extracted content in different formats
     with open("output.json", "w") as f:
