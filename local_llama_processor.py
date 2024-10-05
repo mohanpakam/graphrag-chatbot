@@ -2,10 +2,11 @@ import logging
 import os
 from typing import List
 from langchain.schema import Document
-from text_processor import TextProcessor
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from vector_store_manager import VectorStoreManager
 from graph_rag import GraphRAG
 import yaml
+from langchain.embeddings import HuggingFaceEmbeddings  # or whatever embedding you're using
 
 # Load config
 def load_config():
@@ -20,13 +21,21 @@ logger = logging.getLogger(__name__)
 
 class LocalLlamaProcessor:
     def __init__(self):
-        self.text_processor = TextProcessor()
-        self.vector_store_manager = VectorStoreManager()
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=config.get('chunk_size', 1000),
+            chunk_overlap=config.get('chunk_overlap', 200),
+            length_function=len,
+        )
+        self.embedding_function = HuggingFaceEmbeddings()  # or your chosen embedding function
+        self.vector_store_manager = VectorStoreManager(self.embedding_function)
         self.graph_rag = GraphRAG()
+
+    def chunk_text(self, text: str) -> List[Document]:
+        return self.text_splitter.create_documents([text])
 
     def process_text(self, text: str, filename: str = "unknown"):
         logger.info(f"Processing text from {filename}...")
-        chunks = self.text_processor.chunk_text(text)
+        chunks = self.chunk_text(text)
         for i, chunk in enumerate(chunks):
             chunk.metadata['filename'] = filename
             chunk.metadata['chunk_index'] = i

@@ -9,6 +9,8 @@ from graph_manager import GraphManager
 import yaml
 import logging
 import json
+from langchain.vectorstores import FAISS
+from langchain.docstore.document import Document
 
 def load_config():
     with open("config.yaml", "r") as f:
@@ -18,15 +20,9 @@ config = load_config()
 logger = logging.getLogger(__name__)
 
 class VectorStoreManager:
-    def __init__(self):
-        self.sqlite_db_path = config['database_path']
-        self.ai_service: BaseLangChainAIService = get_langchain_ai_service(config.get('ai_service', 'ollama'))
-        self.embedding_dim = self.ai_service.get_embedding_dim()
-        self.init_database()
-        self.embedding_cache = EmbeddingCache(self.sqlite_db_path)
-        self.graph_manager = GraphManager(self.sqlite_db_path)
-        self.embedding_cache.cache_embeddings()
-        logger.info(f"Initialized VectorStoreManager with {self.document_count()} documents")
+    def __init__(self, embedding_function):
+        self.embedding_function = embedding_function
+        self.vector_store = None
 
     def init_database(self):
         with sqlite3.connect(self.sqlite_db_path) as conn:
@@ -45,35 +41,15 @@ class VectorStoreManager:
 
     def add_document(self, document: Document):
         try:
-            embedding = self.ai_service.get_embedding(document.page_content)
-            if len(embedding) != self.embedding_dim:
-                raise ValueError(f"Embedding dimension mismatch. Expected {self.embedding_dim}, got {len(embedding)}")
-            
-            filename = document.metadata.get('filename', 'unknown')
-            chunk_index = document.metadata.get('chunk_index', 0)
-            
-            embedding_array = np.array(embedding, dtype=np.float32)
-            
-            with sqlite3.connect(self.sqlite_db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    INSERT INTO documents (filename, chunk_index, content, metadata, embedding)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (filename, chunk_index, document.page_content, json.dumps(document.metadata), embedding_array.tobytes()))
-                doc_id = cursor.lastrowid
-                conn.commit()
-            
-            document.metadata['sqlite_id'] = doc_id
-            
-            # Update the FAISS index in the embedding cache
-            self.embedding_cache.add_embedding(doc_id, embedding_array)
-            
-            # Store graph data
-            self.graph_manager.store_data(document, embedding)
-            
-            logger.info(f"Added document with embedding and graph data. New count: {self.document_count()}")
+            if self.vector_store is None:
+                # Initialize the vector store with the first document
+                self.vector_store = FAISS.from_documents([document], self.embedding_function)
+                logger.info(f"Vector store initialized with embedding dimension: {len(self.embedding_function.embed_query(''))}")
+            else:
+                self.vector_store.add_documents([document])
+            logger.info(f"Document added successfully: {document.metadata.get('filename', 'Unknown')}")
         except Exception as e:
-            logger.error(f"Error adding document: {e}")
+            logger.error(f"Error adding document: {str(e)}")
 
     def retrieve_relevant_documents(self, query: str) -> List[Document]:
         k = config.get('top_k', 5)
@@ -115,10 +91,7 @@ class VectorStoreManager:
         return relevant_docs
 
     def document_count(self) -> int:
-        with sqlite3.connect(self.sqlite_db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM documents")
-            return cursor.fetchone()[0]
+        return len(self.vector_store.index_to_docstore_id) if self.vector_store else 0
 
     def get_documents_by_ids(self, doc_ids: List[int]) -> List[Document]:
         relevant_docs = []

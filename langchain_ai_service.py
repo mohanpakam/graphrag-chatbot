@@ -15,6 +15,7 @@ from langchain_google_vertexai import VertexAIEmbeddings
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 import os
+from services.mock_langchain_service import MockLangChainAIService
 
 def load_config():
     with open("config.yaml", "r") as f:
@@ -184,8 +185,7 @@ def get_langchain_ai_service(service_type: str, callback_manager: CallbackManage
     elif service_type == 'vertex_gemini':
         return VertexGeminiLangChainAIService(callback_manager)
     elif service_type == 'mock':
-        from mock_langchain_service import MockLangChainAIService
-        return MockLangChainAIService()
+        return MockLangChainAIService(callback_manager)
     else:
         error_msg = f"Unknown LangChain AI service type: {service_type}"
         logger.error(error_msg)
