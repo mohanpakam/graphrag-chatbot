@@ -104,7 +104,7 @@ class PDFExtractor:
             self.current_large_table = None
 
     def to_json(self):
-        return json.dumps(self.extracted_data, indent=2, default=str)
+        return json.dumps(self.extracted_data, indent=2, default=str, ensure_ascii=False)
 
     def to_html(self):
         html = "<html><body>"
@@ -203,17 +203,17 @@ if __name__ == "__main__":
     extractor.extract_content()
     
     # Log extracted content for debugging
-    logger.debug(f"Extracted text: {json.dumps(extractor.extracted_data['text'], indent=2)}")
-    logger.debug(f"Extracted tables: {json.dumps(extractor.extracted_data['tables'], indent=2)}")
+    logger.debug(f"Extracted text: {json.dumps(extractor.extracted_data['text'], indent=2, ensure_ascii=False)}")
+    logger.debug(f"Extracted tables: {json.dumps(extractor.extracted_data['tables'], indent=2, ensure_ascii=False)}")
 
     # Save extracted content in different formats
-    with open("output.json", "w") as f:
+    with open("output.json", "w", encoding="utf-8") as f:
         f.write(extractor.to_json())
     
-    with open("output.html", "w") as f:
+    with open("output.html", "w", encoding="utf-8") as f:
         f.write(extractor.to_html())
     
-    with open("output.md", "w") as f:
+    with open("output.md", "w", encoding="utf-8") as f:
         f.write(extractor.to_markdown())
 
     # Save Sales Report to database
@@ -223,4 +223,4 @@ if __name__ == "__main__":
     all_sales_data = extractor.db_manager.get_all_sales_report_data()
     logger.info(f"All entries in the sales_report table (count: {len(all_sales_data)}):")
     for row in all_sales_data:
-        logger.info(json.dumps(row, indent=2))
+        logger.info(json.dumps(row, indent=2, ensure_ascii=False))
