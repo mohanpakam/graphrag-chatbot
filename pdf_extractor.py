@@ -152,20 +152,14 @@ class PDFExtractor:
 def save_sales_report_to_db(extracted_content: Dict[str, Any], db_manager: DBManager):
     sales_data = []
     for table in extracted_content['tables']:
-        if 'headers' in table and any('sales' in header.lower() for header in table['headers']):
-            for row in table['content']:
-                try:
-                    sales_row = {
-                        'Month': row[0],
-                        'Electronics': row[1] if len(row) > 1 else '',
-                        'Clothing': row[2] if len(row) > 2 else '',
-                        'Food': row[3] if len(row) > 3 else '',
-                        'Books': row[4] if len(row) > 4 else '',
-                        'Total': row[-1]
-                    }
-                    sales_data.append(sales_row)
-                except Exception as e:
-                    logger.error(f"Error processing row: {row}. Error: {str(e)}")
+        # Check if this table looks like a sales report
+        if 'headers' in table and table['headers']:
+            if any('sales' in header.lower() for header in table['headers'] if header):
+                process_table_with_headers(table, sales_data)
+        else:
+            # If no headers, check if the first row looks like a sales report
+            if table['content'] and len(table['content'][0]) >= 6:
+                process_table_without_headers(table, sales_data)
     
     if sales_data:
         db_manager.create_sales_report_table()
@@ -173,6 +167,32 @@ def save_sales_report_to_db(extracted_content: Dict[str, Any], db_manager: DBMan
         logger.info(f"Sales Report data saved to database. Rows inserted: {len(sales_data)}")
     else:
         logger.warning("No Sales Report data found in the extracted content")
+
+def process_table_with_headers(table: Dict[str, Any], sales_data: List[Dict[str, str]]):
+    for row in table['content']:
+        try:
+            sales_row = create_sales_row(row)
+            sales_data.append(sales_row)
+        except Exception as e:
+            logger.error(f"Error processing row with headers: {row}. Error: {str(e)}")
+
+def process_table_without_headers(table: Dict[str, Any], sales_data: List[Dict[str, str]]):
+    for row in table['content'][1:]:  # Skip the first row as it might be headers
+        try:
+            sales_row = create_sales_row(row)
+            sales_data.append(sales_row)
+        except Exception as e:
+            logger.error(f"Error processing row without headers: {row}. Error: {str(e)}")
+
+def create_sales_row(row: List[str]) -> Dict[str, str]:
+    return {
+        'Month': row[0],
+        'Electronics': row[1] if len(row) > 1 else '',
+        'Clothing': row[2] if len(row) > 2 else '',
+        'Food': row[3] if len(row) > 3 else '',
+        'Books': row[4] if len(row) > 4 else '',
+        'Total': row[-1]
+    }
 
 # Usage
 if __name__ == "__main__":
