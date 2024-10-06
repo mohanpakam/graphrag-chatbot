@@ -16,20 +16,6 @@ config = load_config()
 # Set page config
 st.set_page_config(page_title="AI Chatbot", page_icon="🤖", layout="wide")
 
-# Ask for Google Vertex AI token
-if 'vertex_ai_token' not in st.session_state:
-    st.session_state.vertex_ai_token = st.text_input("Enter your Google Vertex AI token:", type="password")
-    if st.session_state.vertex_ai_token:
-        os.environ['VERTEX_AI_TOKEN'] = st.session_state.vertex_ai_token
-        st.success("Token saved. You can now use the chatbot.")
-    else:
-        st.warning("Please enter a valid token to use the chatbot.")
-        st.stop()
-
-# Initialize session state for chat history if it doesn't exist
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
-
 # Function to send user input to the backend API and get response
 def get_ai_response(user_input, reset=False):
     api_url = f"{config['backend_api_url']}/chat"
@@ -43,53 +29,49 @@ def get_ai_response(user_input, reset=False):
     print("Response received from API:", response.json())
     return response.json()["response"]
 
-# Header
-st.title("AI Chatbot")
+def chatbot_tab():
+    st.header("AI Chatbot")
 
-# Chat history display
-chat_container = st.container()
+    # Chat history display
+    chat_container = st.container()
 
-# User input
-user_input = st.text_input("Enter your message:", key="user_input")
+    # User input
+    user_input = st.text_input("Enter your message:", key="user_input")
 
-# Submit button
-if st.button("Send"):
-    if user_input:
-        # Add user message to chat history
-        st.session_state.chat_history.append(("user", user_input))
+    # Submit button
+    if st.button("Send"):
+        if user_input:
+            # Add user message to chat history
+            st.session_state.chat_history.append(("user", user_input))
+            
+            # Get AI response
+            with st.spinner("AI is thinking..."):
+                ai_response = get_ai_response(user_input)
+            
+            # Add AI response to chat history
+            st.session_state.chat_history.append(("ai", ai_response))
+            
+            # Clear user input by rerunning the app
+            st.rerun()
+
+    # Display chat history
+    with chat_container:
+        for role, message in st.session_state.chat_history:
+            if role == "user":
+                st.text_input("You:", value=message, disabled=True)
+            else:
+                st.text_area("AI:", value=message, disabled=True)
+
+    # Reset Chat button
+    if st.button("Reset Chat"):
+        # Clear chat history in UI
+        st.session_state.chat_history = []
         
-        # Get AI response
-        with st.spinner("AI is thinking..."):
-            ai_response = get_ai_response(user_input)
+        # Send reset signal to backend
+        get_ai_response("", reset=True)
         
-        # Add AI response to chat history
-        st.session_state.chat_history.append(("ai", ai_response))
-        
-        # Clear user input by rerunning the app
+        st.success("Chat has been reset!")
         st.rerun()
-
-# Display chat history
-with chat_container:
-    for role, message in st.session_state.chat_history:
-        if role == "user":
-            st.text_input("You:", value=message, disabled=True)
-        else:
-            st.text_area("AI:", value=message, disabled=True)
-
-# Reset Chat button
-if st.button("Reset Chat"):
-    # Clear chat history in UI
-    st.session_state.chat_history = []
-    
-    # Send reset signal to backend
-    get_ai_response("", reset=True)
-    
-    st.success("Chat has been reset!")
-    st.rerun()
-
-# Footer
-st.markdown("---")
-st.caption("Disclaimer: This chatbot uses AI-generated content. Use the information provided at your own discretion.")
 
 # New tab for Production Support Issue Analysis
 def production_support_tab():
@@ -132,9 +114,19 @@ def production_support_tab():
 
 # Main app layout
 def main():
-    st.set_page_config(page_title="AI Chatbot", page_icon="🤖", layout="wide")
+    # Ask for Google Vertex AI token
+    if 'vertex_ai_token' not in st.session_state:
+        st.session_state.vertex_ai_token = st.text_input("Enter your Google Vertex AI token:", type="password")
+        if st.session_state.vertex_ai_token:
+            os.environ['VERTEX_AI_TOKEN'] = st.session_state.vertex_ai_token
+            st.success("Token saved. You can now use the chatbot.")
+        else:
+            st.warning("Please enter a valid token to use the chatbot.")
+            st.stop()
 
-    # ... (existing code for Vertex AI token input) ...
+    # Initialize session state for chat history if it doesn't exist
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
 
     # Create tabs
     tab1, tab2 = st.tabs(["AI Chatbot", "Production Support Analysis"])
@@ -145,7 +137,9 @@ def main():
     with tab2:
         production_support_tab()
 
-    # ... (existing code for footer) ...
+    # Footer
+    st.markdown("---")
+    st.caption("Disclaimer: This chatbot uses AI-generated content. Use the information provided at your own discretion.")
 
 if __name__ == "__main__":
     main()
