@@ -53,7 +53,11 @@ class PDFExtractor:
         return processed_tables
 
     def clean_table_content(self, table_content):
-        return [[cell.strip() for cell in row if cell.strip()] for row in table_content if any(cell.strip() for cell in row)]
+        return [
+            [str(cell).strip() if cell is not None else '' for cell in row if cell is not None and str(cell).strip()]
+            for row in table_content
+            if any(cell is not None and str(cell).strip() for cell in row)
+        ]
 
     def process_tables(self, page_tables, page_num):
         for table in page_tables:
@@ -106,11 +110,11 @@ class PDFExtractor:
                 md += f"### Table on Page {table['page']}\n\n"
             
             if 'headers' in table and table['headers']:
-                headers = [h.strip() for h in table['headers']]
-                content = [[str(cell).strip() for cell in row] for row in table['content']]
+                headers = [str(h).strip() if h is not None else '' for h in table['headers']]
+                content = [[str(cell).strip() if cell is not None else '' for cell in row] for row in table['content']]
                 df = pd.DataFrame(content, columns=headers)
             else:
-                content = [[str(cell).strip() for cell in row] for row in table['content']]
+                content = [[str(cell).strip() if cell is not None else '' for cell in row] for row in table['content']]
                 df = pd.DataFrame(content)
             
             # Generate markdown table

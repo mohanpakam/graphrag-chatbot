@@ -1,0 +1,33 @@
+{
+  "summary": "The provided PDF content consists of three pages with different types of tables and summaries. The first page contains two tables: one with employee information and another with a detailed sales report for the past year. The second page presents a summary of the sales report, while the third page shows the company's department structure. The tables provide insights into the age and location of employees, as well as the performance of different product categories across various months.",
+  "key_points": [
+    "The employee information table reveals that the international team has a diverse age range and locations.",
+    "The detailed sales report spans multiple pages and provides a comprehensive overview of the company's performance in different product categories throughout the year.",
+    "The summary on page 2 highlights the trends and seasonal variations in sales data.",
+    "The department structure table demonstrates a complex organizational hierarchy with nested information."
+  ],
+  "insights": "- The sales report suggests that certain product categories, such as electronics and clothing, have higher sales during specific months, while others, like food and books, tend to be more consistent throughout the year.\n- The company's performance is affected by seasonal variations in demand, which can impact sales of certain products.\n- The department structure indicates a layered organizational approach, with each department having its own head and number of employees.",
+  "tables": [
+    {
+      "table_name": "Table 1: Employee Information",
+      "description": "Table extracted from the PDF: Table 1: Employee Information",
+      "data": [
+        {
+          "Name": "John Smith",
+          "Age": "30",
+          "Location": "New York"
+        },
+        {
+          "Name": "Jane Doe",
+          "Age": "25",
+          "Location": "London"
+        },
+        {
+          "Name": "Mike Johnson",
+          "Age": "40",
+          "Location": "Paris"
+        }
+      ]
+    }
+  ]
+}
