@@ -63,7 +63,18 @@ async def chat(request: ChatRequest):
         logger.info("Chat history has been reset")
         return {"response": "Chat history has been cleared."}
 
-    response = graph_rag.process_query(request.message)
+    # Get query embedding
+    query_embedding = ai_service.get_embedding(request.message)
+
+    # Find similar documents
+    similar_chunks = embedding_cache.find_similar(query_embedding, top_k=3)
+
+    # Prepare context from similar documents
+    context = "\n".join([f"From {filename} (chunk {chunk_index}):\n{content}" 
+                         for distance, filename, chunk_index, content in similar_chunks])
+
+    # Generate response using the AI service
+    response = ai_service.generate_response(request.message, context)
     
     return {"response": response}
 
