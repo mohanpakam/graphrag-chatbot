@@ -112,6 +112,12 @@ class PDFExtractor:
             if 'headers' in table and table['headers']:
                 headers = [str(h).strip() if h is not None else '' for h in table['headers']]
                 content = [[str(cell).strip() if cell is not None else '' for cell in row] for row in table['content']]
+                
+                # Ensure the number of headers matches the number of columns in the content
+                max_columns = max(len(row) for row in content)
+                headers = headers[:max_columns]  # Truncate headers if there are too many
+                headers += [''] * (max_columns - len(headers))  # Add empty headers if there are too few
+                
                 df = pd.DataFrame(content, columns=headers)
             else:
                 content = [[str(cell).strip() if cell is not None else '' for cell in row] for row in table['content']]
