@@ -3,6 +3,9 @@ import requests
 import yaml
 from database_manager import DatabaseManager
 import os
+import matplotlib.pyplot as plt
+import base64
+import io
 
 def load_config():
     with open("config.yaml", "r") as f:
@@ -87,3 +90,62 @@ if st.button("Reset Chat"):
 # Footer
 st.markdown("---")
 st.caption("Disclaimer: This chatbot uses AI-generated content. Use the information provided at your own discretion.")
+
+# New tab for Production Support Issue Analysis
+def production_support_tab():
+    st.header("Production Support Issue Analysis")
+
+    if st.button("Reset Production Chat"):
+        response = requests.post(f"{config['backend_api_url']}/reset_production_chat")
+        st.success(response.json()["message"])
+
+    user_query = st.text_input("Enter your production support query:")
+
+    if user_query:
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("Run Query"):
+                response = requests.post(f"{config['backend_api_url']}/production_issue_query", json={"query": user_query})
+                data = response.json()
+                st.subheader("SQL Query")
+                st.code(data["sql_query"], language="sql")
+                st.subheader("Query Result")
+                st.table(data["result"])
+
+        with col2:
+            if st.button("Get Analysis Summary"):
+                response = requests.post(f"{config['backend_api_url']}/production_issue_analysis", json={"query": user_query})
+                data = response.json()
+                st.subheader("Analysis Summary")
+                st.write(data["analysis_summary"])
+
+        if st.button("Show Trend Graph"):
+            response = requests.post(f"{config['backend_api_url']}/production_issue_trend", json={"query": user_query})
+            data = response.json()
+            graph_base64 = data["graph"]
+            graph_bytes = base64.b64decode(graph_base64)
+            graph_image = plt.imread(io.BytesIO(graph_bytes), format='png')
+            st.image(graph_image, caption="Trend Graph", use_column_width=True)
+            st.write(f"X-axis: {data['x_axis']}")
+            st.write(f"Y-axis: {data['y_axis']}")
+
+# Main app layout
+def main():
+    st.set_page_config(page_title="AI Chatbot", page_icon="🤖", layout="wide")
+
+    # ... (existing code for Vertex AI token input) ...
+
+    # Create tabs
+    tab1, tab2 = st.tabs(["AI Chatbot", "Production Support Analysis"])
+
+    with tab1:
+        chatbot_tab()
+
+    with tab2:
+        production_support_tab()
+
+    # ... (existing code for footer) ...
+
+if __name__ == "__main__":
+    main()

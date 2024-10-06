@@ -65,6 +65,48 @@ class LangChainAIService(BaseLangChainAIService):
         self.memory.clear()
         logger.info("LangChain conversation history has been cleared.")
 
+    def generate_sql_query(self, natural_language_query, schema_info):
+        prompt = f"""
+        Given the following database schema:
+        {schema_info}
+
+        Generate an SQL query for the following question:
+        {natural_language_query}
+
+        SQL Query:
+        """
+        response = self.llm(prompt)
+        return response.strip()
+
+    def generate_analysis_summary(self, query, result):
+        prompt = f"""
+        Given the following query and its result:
+        Query: {query}
+        Result: {result}
+
+        Provide a brief analysis summary of the data:
+        """
+        response = self.llm(prompt)
+        return response.strip()
+
+    def determine_trend_axes(self, query: str, available_columns: List[str]) -> Dict[str, str]:
+        prompt = f"""
+        Given the following query and available columns:
+        Query: {query}
+        Available columns: {', '.join(available_columns)}
+
+        Determine the most appropriate columns for the x and y axes of a trend graph.
+        Return your answer in the format:
+        x: <column_name>
+        y: <column_name>
+        """
+        response = self.llm(prompt)
+        axes = {}
+        for line in response.strip().split('\n'):
+            axis, column = line.split(': ')
+            axes[axis.strip()] = column.strip()
+        return axes
+
 class AzureOpenAILangChainAIService(BaseLangChainAIService):
     def __init__(self, callback_manager=None):
         logger.info("Initializing AzureOpenAILangChainAIService")

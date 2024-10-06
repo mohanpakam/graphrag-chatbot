@@ -10,6 +10,10 @@ import time
 import uvicorn
 import os
 from graph_rag import GraphRAG
+import pandas as pd
+import matplotlib.pyplot as plt
+import io
+import base64
 
 app = FastAPI()
 
@@ -30,12 +34,20 @@ class ChatRequest(BaseModel):
     reset: bool = False
     vertex_ai_token: str = None
 
+class ProductionIssueRequest(BaseModel):
+    query: str
+
 ai_service = None
+schema_info = None
 
 @app.on_event("startup")
 async def startup_event():
+    global ai_service, schema_info
     logger.info("Starting up the application")
     embedding_cache.cache_embeddings()
+    ai_service = get_langchain_ai_service(config['ai_service'])
+    schema_info = db_manager.get_schema_info()
+    logger.info("AI service initialized and schema info fetched")
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
@@ -53,9 +65,6 @@ async def chat(request: ChatRequest):
         os.environ['VERTEX_AI_TOKEN'] = request.vertex_ai_token
         ai_service = get_langchain_ai_service(config['ai_service'])
         logger.info("Updated Vertex AI token and reinitialized AI service")
-
-    if ai_service is None:
-        ai_service = get_langchain_ai_service(config['ai_service'])
 
     if request.reset:
         if hasattr(ai_service, 'clear_conversation_history'):
@@ -88,6 +97,74 @@ async def rag_chat(request: ChatRequest):
     response = graph_rag.process_query(request.message)
     
     return {"response": response}
+
+@app.post("/reset_production_chat")
+async def reset_production_chat():
+    global ai_service
+    if hasattr(ai_service, 'clear_conversation_history'):
+        ai_service.clear_conversation_history()
+    logger.info("Production support chat history has been reset")
+    return {"message": "Production support chat history has been cleared."}
+
+@app.post("/production_issue_query")
+async def production_issue_query(request: ProductionIssueRequest):
+    global ai_service, schema_info
+
+    # Generate SQL query from natural language
+    sql_query = ai_service.generate_sql_query(request.query, schema_info)
+
+    # Execute the query
+    result = db_manager.execute_query(sql_query)
+
+    return {"sql_query": sql_query, "result": result}
+
+@app.post("/production_issue_analysis")
+async def production_issue_analysis(request: ProductionIssueRequest):
+    global ai_service, schema_info
+
+    # Generate SQL query from natural language
+    sql_query = ai_service.generate_sql_query(request.query, schema_info)
+
+    # Execute the query
+    result = db_manager.execute_query(sql_query)
+
+    # Generate analysis summary
+    analysis_summary = ai_service.generate_analysis_summary(request.query, result)
+
+    return {"analysis_summary": analysis_summary}
+
+@app.post("/production_issue_trend")
+async def production_issue_trend(request: ProductionIssueRequest):
+    global ai_service, schema_info
+
+    # Generate SQL query from natural language
+    sql_query = ai_service.generate_sql_query(request.query, schema_info)
+
+    # Execute the query
+    result = db_manager.execute_query(sql_query)
+
+    # Convert result to DataFrame
+    df = pd.DataFrame(result, columns=[col[0] for col in db_manager.get_column_names(sql_query)])
+
+    # Ask AI to determine appropriate x and y axes
+    axes_selection = ai_service.determine_trend_axes(request.query, df.columns.tolist())
+
+    # Generate trend graph
+    plt.figure(figsize=(10, 6))
+    plt.plot(df[axes_selection['x']], df[axes_selection['y']])
+    plt.title(request.query)
+    plt.xlabel(axes_selection['x'])
+    plt.ylabel(axes_selection['y'])
+    
+    # Save the plot to a bytes buffer
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    
+    # Encode the bytes buffer to base64
+    graph_base64 = base64.b64encode(buf.getvalue()).decode()
+
+    return {"graph": graph_base64, "x_axis": axes_selection['x'], "y_axis": axes_selection['y']}
 
 @app.on_event("shutdown")
 async def shutdown_event():
