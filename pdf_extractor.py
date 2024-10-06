@@ -13,30 +13,22 @@ class PDFExtractor:
         self.pdf_path = pdf_path
         self.doc = fitz.open(self.pdf_path)
         self.extracted_data = {
-            'text': [],
             'tables': []
         }
         self.db_manager = DBManager('sales_report.db')
         self.current_large_table = None
 
     def extract_content(self):
-        self.extract_text_and_tables()
+        self.extract_tables()
         self.finalize_large_table()
 
-    def extract_text_and_tables(self):
+    def extract_tables(self):
         for page_num in range(len(self.doc)):
             page = self.doc[page_num]
-            text, page_tables = self.process_page(page, page_num)
-            
-            self.extracted_data['text'].append({
-                'page': page_num + 1,
-                'content': text
-            })
-            
+            page_tables = self.process_page(page, page_num)
             self.process_tables(page_tables, page_num)
 
     def process_page(self, page, page_num):
-        text = page.get_text()
         tables = page.find_tables()
         processed_tables = []
         
@@ -46,7 +38,7 @@ class PDFExtractor:
                 bbox = table.bbox
                 processed_tables.append({
                     'page': page_num + 1,
-                    'content': extracted_table,
+                    'content': self.clean_table_content(extracted_table),
                     'bbox': {
                         'x0': bbox[0] if isinstance(bbox, tuple) else bbox.x0,
                         'y0': bbox[1] if isinstance(bbox, tuple) else bbox.y0,
@@ -58,7 +50,10 @@ class PDFExtractor:
         processed_tables.sort(key=lambda t: (t['bbox']['y0'], t['bbox']['x0']))
         
         logger.info(f"Extracted {len(processed_tables)} tables from page {page_num + 1}")
-        return text, processed_tables
+        return processed_tables
+
+    def clean_table_content(self, table_content):
+        return [[cell.strip() for cell in row if cell.strip()] for row in table_content if any(cell.strip() for cell in row)]
 
     def process_tables(self, page_tables, page_num):
         for table in page_tables:
@@ -67,7 +62,6 @@ class PDFExtractor:
             elif self.is_start_of_large_table(table):
                 self.start_large_table(table)
             else:
-                # Ensure all tables have a consistent structure
                 processed_table = {
                     'page': table['page'],
                     'content': table['content'],
@@ -84,8 +78,8 @@ class PDFExtractor:
     def start_large_table(self, table):
         self.current_large_table = {
             'pages': [table['page']],
-            'headers': table['content'][0],
-            'content': table['content'][1:],
+            'headers': table['content'][0] if table['content'] else [],
+            'content': table['content'][1:] if len(table['content']) > 1 else [],
             'bbox': table['bbox']
         }
 
@@ -103,37 +97,8 @@ class PDFExtractor:
             self.extracted_data['tables'].append(self.current_large_table)
             self.current_large_table = None
 
-    def to_json(self):
-        return json.dumps(self.extracted_data, indent=2, default=str, ensure_ascii=False)
-
-    def to_html(self):
-        html = "<html><body>"
-        for text in self.extracted_data['text']:
-            html += f"<h2>Page {text['page']}</h2>"
-            html += f"<p>{text['content']}</p>"
-        
-        for table in self.extracted_data['tables']:
-            if 'pages' in table:
-                html += f"<h3>Table on Page(s) {', '.join(map(str, table['pages']))}</h3>"
-            else:
-                html += f"<h3>Table on Page {table['page']}</h3>"
-            
-            if 'headers' in table and table['headers']:
-                df = pd.DataFrame(table['content'], columns=table['headers'])
-            else:
-                df = pd.DataFrame(table['content'])
-            
-            html += df.to_html(index=False)
-        
-        html += "</body></html>"
-        return html
-
     def to_markdown(self):
         md = ""
-        for text in self.extracted_data['text']:
-            md += f"## Page {text['page']}\n\n"
-            md += f"{text['content']}\n\n"
-        
         for table in self.extracted_data['tables']:
             if 'pages' in table:
                 md += f"### Table on Page(s) {', '.join(map(str, table['pages']))}\n\n"
@@ -141,23 +106,30 @@ class PDFExtractor:
                 md += f"### Table on Page {table['page']}\n\n"
             
             if 'headers' in table and table['headers']:
-                df = pd.DataFrame(table['content'], columns=table['headers'])
+                headers = [h.strip() for h in table['headers']]
+                content = [[str(cell).strip() for cell in row] for row in table['content']]
+                df = pd.DataFrame(content, columns=headers)
             else:
-                df = pd.DataFrame(table['content'])
+                content = [[str(cell).strip() for cell in row] for row in table['content']]
+                df = pd.DataFrame(content)
             
-            md += tabulate(df, headers='keys', tablefmt='pipe') + "\n\n"
+            # Generate markdown table
+            table_md = tabulate(df, headers='keys', tablefmt='pipe', showindex=False)
+            
+            # Remove all spaces around pipe symbols, including the leading and trailing pipes
+            table_md = '\n'.join(['|' + '|'.join([cell.strip() for cell in row.split('|')[1:-1]]) + '|' for row in table_md.split('\n')])
+            
+            md += table_md + "\n\n"
         
         return md
 
 def save_sales_report_to_db(extracted_content: Dict[str, Any], db_manager: DBManager):
     sales_data = []
     for table in extracted_content['tables']:
-        # Check if this table looks like a sales report
         if 'headers' in table and table['headers']:
             if any('sales' in header.lower() for header in table['headers'] if header):
                 process_table_with_headers(table, sales_data)
         else:
-            # If no headers, check if the first row looks like a sales report
             if table['content'] and len(table['content'][0]) >= 6:
                 process_table_without_headers(table, sales_data)
     
@@ -177,7 +149,7 @@ def process_table_with_headers(table: Dict[str, Any], sales_data: List[Dict[str,
             logger.error(f"Error processing row with headers: {row}. Error: {str(e)}")
 
 def process_table_without_headers(table: Dict[str, Any], sales_data: List[Dict[str, str]]):
-    for row in table['content'][1:]:  # Skip the first row as it might be headers
+    for row in table['content']:
         try:
             sales_row = create_sales_row(row)
             sales_data.append(sales_row)
@@ -203,16 +175,9 @@ if __name__ == "__main__":
     extractor.extract_content()
     
     # Log extracted content for debugging
-    logger.debug(f"Extracted text: {json.dumps(extractor.extracted_data['text'], indent=2, ensure_ascii=False)}")
     logger.debug(f"Extracted tables: {json.dumps(extractor.extracted_data['tables'], indent=2, ensure_ascii=False)}")
 
-    # Save extracted content in different formats
-    with open("output.json", "w", encoding="utf-8") as f:
-        f.write(extractor.to_json())
-    
-    with open("output.html", "w", encoding="utf-8") as f:
-        f.write(extractor.to_html())
-    
+    # Save extracted content as markdown
     with open("output.md", "w", encoding="utf-8") as f:
         f.write(extractor.to_markdown())
 
