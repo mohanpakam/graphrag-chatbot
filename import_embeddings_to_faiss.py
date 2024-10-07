@@ -7,104 +7,88 @@ import faiss
 import numpy as np
 import pickle
 
-# Set up Google Cloud credentials
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "path/to/your/google-cloud-credentials.json"
+class EmbedFileToFaiss:
+    def __init__(self, project_id, location, credentials_path):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+        aiplatform.init(project=project_id, location=location)
+        self.embeddings = VertexAIEmbeddings()
+        self.index = None
+        self.metadata = []
 
-# Initialize Google Cloud AI Platform
-aiplatform.init(project="your-project-id", location="your-location")
+    def get_file_embeddings(self, file_path, chunk_size=300, chunk_overlap=20):
+        if file_path.endswith('.md'):
+            loader = UnstructuredMarkdownLoader(file_path)
+        else:
+            loader = TextLoader(file_path)
+        
+        document = loader.load()
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap
+        )
+        chunks = text_splitter.split_documents(document)
+        chunk_embeddings = self.embeddings.embed_documents([chunk.page_content for chunk in chunks])
+        filename = os.path.basename(file_path)
+        return chunks, chunk_embeddings, filename
 
-def get_file_embeddings(file_path, chunk_size=300, chunk_overlap=20):
-    # Determine the file type and use the appropriate loader
-    if file_path.endswith('.md'):
-        loader = UnstructuredMarkdownLoader(file_path)
-    else:
-        loader = TextLoader(file_path)
-    
-    document = loader.load()
+    def add_to_index(self, chunks, chunk_embeddings, filename):
+        embeddings_array = np.array(chunk_embeddings).astype('float32')
+        if self.index is None:
+            dimension = len(chunk_embeddings[0])
+            self.index = faiss.IndexFlatL2(dimension)
+        self.index.add(embeddings_array)
+        self.metadata.extend([{"chunk": chunk.page_content, "filename": filename} for chunk in chunks])
 
-    # Split the text into chunks
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap
-    )
-    chunks = text_splitter.split_documents(document)
+    def process_folder(self, folder_path):
+        for filename in os.listdir(folder_path):
+            if filename.endswith(('.txt', '.md')):
+                file_path = os.path.join(folder_path, filename)
+                chunks, embeddings, filename = self.get_file_embeddings(file_path)
+                self.add_to_index(chunks, embeddings, filename)
+                print(f"Processed {filename}")
 
-    # Initialize the Vertex AI Embeddings
-    embeddings = VertexAIEmbeddings()
+    def save_index(self, index_file, metadata_file):
+        faiss.write_index(self.index, index_file)
+        with open(metadata_file, 'wb') as f:
+            pickle.dump(self.metadata, f)
+        print(f"Index saved to {index_file} and metadata saved to {metadata_file}")
 
-    # Generate embeddings for each chunk
-    chunk_embeddings = embeddings.embed_documents([chunk.page_content for chunk in chunks])
+    @staticmethod
+    def load_index(index_file, metadata_file):
+        index = faiss.read_index(index_file)
+        with open(metadata_file, 'rb') as f:
+            metadata = pickle.load(f)
+        return index, metadata
 
-    # Get the filename from the file_path
-    filename = os.path.basename(file_path)
-
-    return chunks, chunk_embeddings, filename
-
-def store_embeddings_locally(chunks, chunk_embeddings, filename, index_file, metadata_file):
-    # Convert embeddings to numpy array
-    embeddings_array = np.array(chunk_embeddings).astype('float32')
-    
-    # Create a FAISS index
-    dimension = len(chunk_embeddings[0])
-    index = faiss.IndexFlatL2(dimension)
-    
-    # Add vectors to the index
-    index.add(embeddings_array)
-    
-    # Save the FAISS index to a file
-    faiss.write_index(index, index_file)
-    
-    # Save metadata (chunks and filename) to a pickle file
-    metadata = [{"chunk": chunk.page_content, "filename": filename} for chunk in chunks]
-    with open(metadata_file, 'wb') as f:
-        pickle.dump(metadata, f)
-    
-    print(f"Embeddings stored locally in {index_file} and {metadata_file}")
-
-def load_embeddings_locally(index_file, metadata_file):
-    # Load the FAISS index
-    index = faiss.read_index(index_file)
-    
-    # Load metadata
-    with open(metadata_file, 'rb') as f:
-        metadata = pickle.load(f)
-    
-    return index, metadata
-
-def search_similar_chunks(query_embedding, index, metadata, k=5):
-    # Convert query embedding to numpy array
-    query_array = np.array([query_embedding]).astype('float32')
-    
-    # Perform the search
-    distances, indices = index.search(query_array, k)
-    
-    # Get the similar chunks with their filenames
-    similar_chunks = [metadata[i] for i in indices[0]]
-    
-    return similar_chunks, distances[0]
+    @staticmethod
+    def search_similar_chunks(query_embedding, index, metadata, k=5):
+        query_array = np.array([query_embedding]).astype('float32')
+        distances, indices = index.search(query_array, k)
+        similar_chunks = [metadata[i] for i in indices[0]]
+        return similar_chunks, distances[0]
 
 if __name__ == "__main__":
-    file_path = "path/to/your/file.txt"  # Can be .txt or .md
+    project_id = "your-project-id"
+    location = "your-location"
+    credentials_path = "path/to/your/google-cloud-credentials.json"
+    
+    embedder = EmbedFileToFaiss(project_id, location, credentials_path)
+    
+    folder_path = "path/to/your/text/files/folder"
+    embedder.process_folder(folder_path)
+    
     index_file = "embeddings_index.faiss"
     metadata_file = "embeddings_metadata.pkl"
+    embedder.save_index(index_file, metadata_file)
     
-    chunks, embeddings, filename = get_file_embeddings(file_path)
+    # Example: Load the index and search for similar chunks
+    loaded_index, loaded_metadata = EmbedFileToFaiss.load_index(index_file, metadata_file)
     
-    print(f"Number of chunks: {len(chunks)}")
-    print(f"Number of embeddings: {len(embeddings)}")
-    print(f"Embedding dimension: {len(embeddings[0])}")
-    print(f"Filename: {filename}")
-
-    # Store embeddings locally using FAISS
-    store_embeddings_locally(chunks, embeddings, filename, index_file, metadata_file)
-
-    # Load embeddings from local storage
-    loaded_index, loaded_metadata = load_embeddings_locally(index_file, metadata_file)
-
-    # Example: Search for similar chunks
-    query_embedding = embeddings[0]  # Use the first embedding as an example query
-    similar_chunks, distances = search_similar_chunks(query_embedding, loaded_index, loaded_metadata)
-
+    # Assuming we have a query embedding (you'd need to generate this from a query text)
+    query_embedding = embedder.embeddings.embed_query("Your query text here")
+    
+    similar_chunks, distances = EmbedFileToFaiss.search_similar_chunks(query_embedding, loaded_index, loaded_metadata)
+    
     print("Similar chunks:")
     for chunk_info, distance in zip(similar_chunks, distances):
         print(f"Distance: {distance:.4f}")
