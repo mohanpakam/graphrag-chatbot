@@ -18,7 +18,8 @@ class EmbeddingCache:
 
     def load_index(self):
         logger.info("Loading FAISS index...")
-        self.faiss_index = faiss.read_index(self.index_file)
+        base_index = faiss.read_index(self.index_file)
+        self.faiss_index = faiss.IndexIDMap(base_index)
         logger.info(f"Loaded {self.faiss_index.ntotal} chunk embeddings.")
 
     def init_db(self):

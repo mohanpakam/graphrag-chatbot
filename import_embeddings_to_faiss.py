@@ -30,7 +30,16 @@ class EmbedFileToFaiss:
         else:
             loader = TextLoader(file_path)
         
-        document = loader.load()[0]  # Assuming single document per file
+        loaded_documents = loader.load()
+        if not loaded_documents:
+            raise ValueError(f"No content loaded from file: {file_path}")
+        
+        document = loaded_documents[0]
+        if not isinstance(document, Document):
+            raise TypeError(f"Loaded content is not a Document object: {type(document)}")
+        
+        if not hasattr(document, 'page_content') or not document.page_content:
+            raise ValueError(f"Loaded document has no page_content: {file_path}")
         
         # Set metadata
         filename = os.path.basename(file_path)
@@ -53,7 +62,8 @@ class EmbedFileToFaiss:
         embedding_array = np.array(chunk_embeddings).astype('float32')
         if self.index is None:
             dimension = len(chunk_embeddings[0])
-            self.index = faiss.IndexFlatL2(dimension)
+            base_index = faiss.IndexFlatL2(dimension)
+            self.index = faiss.IndexIDMap(base_index)
         
         doc_id, chunk_ids = self.embedding_cache.store_document(
             filename=filename,
@@ -62,9 +72,8 @@ class EmbedFileToFaiss:
             chunks=chunks
         )
         
-        # Add embeddings to FAISS index and ensure IDs match
-        for chunk_id, embedding in zip(chunk_ids, embedding_array):
-            self.index.add_with_ids(embedding.reshape(1, -1), np.array([chunk_id]))
+        # Add embeddings to FAISS index with custom IDs
+        self.index.add_with_ids(embedding_array, np.array(chunk_ids))
 
         logger.info(f"Added document '{filename}' (ID: {doc_id}) with {len(chunks)} chunks to index and database")
         return doc_id
