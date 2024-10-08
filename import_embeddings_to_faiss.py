@@ -6,6 +6,7 @@ from google.cloud import aiplatform
 import faiss
 import numpy as np
 import pickle
+from dataclasses import dataclass
 
 class EmbedFileToFaiss:
     def __init__(self, project_id, location, credentials_path):
@@ -64,8 +65,24 @@ class EmbedFileToFaiss:
     def search_similar_chunks(query_embedding, index, metadata, k=5):
         query_array = np.array([query_embedding]).astype('float32')
         distances, indices = index.search(query_array, k)
-        similar_chunks = [metadata[i] for i in indices[0]]
-        return similar_chunks, distances[0]
+        similar_chunks = [
+            SearchResult(
+                distance=float(distances[0][i]),
+                filename=metadata[idx]['filename'],
+                chunk_content=metadata[idx]['chunk']
+            )
+            for i, idx in enumerate(indices[0])
+        ]
+        return similar_chunks
+
+@dataclass
+class SearchResult:
+    distance: float
+    filename: str
+    chunk_content: str
+
+    def __str__(self):
+        return f"Distance: {self.distance:.4f}\nFilename: {self.filename}\nChunk: {self.chunk_content}"
 
 if __name__ == "__main__":
     project_id = "your-project-id"
@@ -87,11 +104,9 @@ if __name__ == "__main__":
     # Assuming we have a query embedding (you'd need to generate this from a query text)
     query_embedding = embedder.embeddings.embed_query("Your query text here")
     
-    similar_chunks, distances = EmbedFileToFaiss.search_similar_chunks(query_embedding, loaded_index, loaded_metadata)
+    similar_chunks = EmbedFileToFaiss.search_similar_chunks(query_embedding, loaded_index, loaded_metadata)
     
     print("Similar chunks:")
-    for chunk_info, distance in zip(similar_chunks, distances):
-        print(f"Distance: {distance:.4f}")
-        print(f"Filename: {chunk_info['filename']}")
-        print(f"Chunk: {chunk_info['chunk']}")
+    for result in similar_chunks:
+        print(result)
         print("---")
