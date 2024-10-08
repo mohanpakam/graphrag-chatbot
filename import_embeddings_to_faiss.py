@@ -31,12 +31,22 @@ class EmbedFileToFaiss:
             loader = TextLoader(file_path)
         
         document = loader.load()[0]  # Assuming single document per file
+        
+        # Set metadata
+        filename = os.path.basename(file_path)
+        document.metadata = {
+            "source": file_path,
+            "filename": filename,
+            "file_type": "markdown" if file_path.endswith('.md') else "text",
+            "creation_date": os.path.getctime(file_path),
+            "last_modified_date": os.path.getmtime(file_path),
+        }
+        
         chunks = self.text_splitter.split_text(document.page_content)
         
         # Generate embeddings for chunks
         chunk_embeddings = self.embeddings.embed_documents(chunks)
         
-        filename = os.path.basename(file_path)
         return document, chunks, chunk_embeddings, filename
 
     def add_to_index(self, document, chunks, chunk_embeddings, filename):
@@ -45,17 +55,18 @@ class EmbedFileToFaiss:
             dimension = len(chunk_embeddings[0])
             self.index = faiss.IndexFlatL2(dimension)
         
-        metadata = {
-            "filename": filename,
-            "metadata": document.metadata
-        }
-        doc_id, chunk_ids = self.embedding_cache.store_document(filename, document.page_content, metadata, chunks)
+        doc_id, chunk_ids = self.embedding_cache.store_document(
+            filename=filename,
+            content=document.page_content,
+            metadata=document.metadata,
+            chunks=chunks
+        )
         
         # Add embeddings to FAISS index and ensure IDs match
-        for i, (chunk_id, embedding) in enumerate(zip(chunk_ids, embedding_array)):
+        for chunk_id, embedding in zip(chunk_ids, embedding_array):
             self.index.add_with_ids(embedding.reshape(1, -1), np.array([chunk_id]))
 
-        logger.info(f"Added document {filename} with {len(chunks)} chunks to index and database")
+        logger.info(f"Added document '{filename}' (ID: {doc_id}) with {len(chunks)} chunks to index and database")
         return doc_id
 
     def process_folder(self, folder_path):

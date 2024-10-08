@@ -45,7 +45,7 @@ class EmbeddingCache:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_document_chunk ON chunks(document_id, chunk_index)')
             conn.commit()
 
-    def store_document(self, filename: str, content: str, metadata: dict, chunks: List[str]) -> int:
+    def store_document(self, filename: str, content: str, metadata: dict, chunks: List[str]) -> Tuple[int, List[int]]:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -62,6 +62,8 @@ class EmbeddingCache:
                 ''', (doc_id, i, chunk))
                 chunk_ids.append(cursor.lastrowid)
 
+            conn.commit()
+            logger.info(f"Stored document '{filename}' with ID {doc_id} and {len(chunks)} chunks")
             return doc_id, chunk_ids
 
     def store_chunk(self, doc_id: int, chunk_index: int, content: str) -> int:
