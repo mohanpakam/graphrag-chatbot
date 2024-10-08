@@ -6,6 +6,7 @@ import os
 import matplotlib.pyplot as plt
 import base64
 import io
+from import_embeddings_to_faiss import EmbedFileToFaiss, SearchResult
 
 def load_config():
     with open("config.yaml", "r") as f:
@@ -111,6 +112,13 @@ def production_support_tab():
             st.image(graph_image, caption="Trend Graph", use_column_width=True)
             st.write(f"X-axis: {data['x_axis']}")
             st.write(f"Y-axis: {data['y_axis']}")
+
+def display_search_results(results: list[SearchResult]):
+    for result in results:
+        st.write(f"Distance: {result.distance:.4f}")
+        st.write(f"Filename: {result.filename}")
+        st.write(f"Chunk: {result.chunk_content}")
+        st.write("---")
 
 # Main app layout
 def main():

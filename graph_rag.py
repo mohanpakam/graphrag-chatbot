@@ -7,6 +7,7 @@ from memory_manager import MemoryManager
 from graph_manager import GraphManager
 from langchain_ai_service import get_langchain_ai_service
 from embedding_cache import EmbeddingCache
+from query_classifier import QueryClassifier
 import yaml
 import logging
 
@@ -30,8 +31,11 @@ class GraphRAG:
         self.ai_service = get_langchain_ai_service(config['ai_service'])
         self.memory_manager = MemoryManager()
         self.graph_manager = GraphManager(config['database_path'])
-        self.embedding_cache = EmbeddingCache(config['database_path'])
+        self.embedding_cache = EmbeddingCache(config['faiss_index_file'], config['database_path'])
+        self.query_classifier = QueryClassifier(self.ai_service)
         self.workflow = self._create_workflow()
+        self.conversation_context = []
+        self.current_issue_context = None
 
     def _create_workflow(self):
         workflow = StateGraph(State)
@@ -42,31 +46,53 @@ class GraphRAG:
         workflow.add_edge("generate_response", END)
         return workflow.compile()
 
-    def retrieve_context_and_graph(self, query: str) -> Dict[str, Any]:
-        # Generate embedding for the query
+    def retrieve_context_and_graph(self, query: str, query_type: str) -> Dict[str, Any]:
         query_embedding = self.ai_service.get_embedding(query)
         
-        logger.debug(f"query embeddings size {len(query_embedding)}")
-        
-        # Use the embedding cache to find similar documents
-        similar_docs = self.embedding_cache.find_similar(query_embedding, config.get('top_k', 5))
-        
-        logger.debug(f"similar_docs size {len(similar_docs)} and similar docs are {similar_docs}")
-        
-        # Retrieve full documents and graph data
-        relevant_docs = self.vector_store_manager.get_documents_by_ids([doc_id for _, doc_id in similar_docs])
-        logger.debug(f"Relevant docs are {len(relevant_docs)} and relevant_docs are {relevant_docs}")
-        graph_data = self.graph_manager.get_subgraph_for_documents(relevant_docs)
-        
+        if query_type == "specific_issue" or self.current_issue_context is None:
+            similar_chunks = self.embedding_cache.find_similar_chunks(query_embedding, config.get('top_k', 5))
+            
+            logger.info(f"Retrieved {len(similar_chunks)} similar chunks from embeddings")
+            for chunk in similar_chunks:
+                logger.info(f"Chunk from file: {chunk['filename']}, chunk #{chunk['chunk_index']}, distance: {chunk['distance']:.4f}")
+            
+            if similar_chunks:
+                most_similar_doc_id = similar_chunks[0]['document_id']
+                all_doc_chunks = self.embedding_cache.get_all_chunks_for_document(most_similar_doc_id)
+                logger.info(f"Retrieved all {len(all_doc_chunks)} chunks for document ID {most_similar_doc_id}")
+                
+                graph_data = self.graph_manager.get_subgraph_for_documents([most_similar_doc_id])
+                logger.info(f"Retrieved graph data: {len(graph_data['nodes'])} nodes and {len(graph_data['relationships'])} relationships")
+                
+                return {
+                    "chunks": all_doc_chunks,
+                    "graph_data": graph_data
+                }
+        else:
+            # For follow-up questions, use the context from the current issue
+            logger.info("Using existing context for follow-up question")
+            return self.current_issue_context
+
+        # For broader queries or when no specific context is set
+        doc_ids = list(set(chunk['document_id'] for chunk in similar_chunks))
+        graph_data = self.graph_manager.get_subgraph_for_documents(doc_ids)
+        expanded_graph = self.expand_graph_for_broad_query(graph_data)
+        logger.info(f"Retrieved expanded graph data: {len(expanded_graph['nodes'])} nodes and {len(expanded_graph['relationships'])} relationships")
         return {
-            "context": relevant_docs,
-            "graph_data": graph_data
+            "chunks": similar_chunks,
+            "graph_data": expanded_graph
         }
+
+    def expand_graph_for_broad_query(self, initial_graph: Dict) -> Dict:
+        # Implement logic to expand the graph based on relationships
+        # This could involve traversing the graph to find related nodes
+        # For simplicity, let's assume we're just returning the initial graph for now
+        return initial_graph
 
     def retrieve_context(self, state: State) -> State:
         query = state['query']
         result = self.retrieve_context_and_graph(query)
-        logging.debug(f'Context and Graph Generated are {result}')
+        logger.debug(f'Context and Graph Generated are {result}')
         state['context'] = result['context']
         state['graph_data'] = result['graph_data']
         return state
@@ -93,7 +119,7 @@ class GraphRAG:
             question=query
         )
         
-        logging.debug(f'Formatted Prompt is  {formatted_prompt}')
+        logger.debug(f'Formatted Prompt is  {formatted_prompt}')
         
         response = self.ai_service.generate_response(formatted_prompt, "")
         
@@ -102,31 +128,91 @@ class GraphRAG:
         return state
 
     def process_query(self, query: str):
-        logging.info(f"Processing query: '{query}'")
+        query_type = self.query_classifier.classify_query(query, self.conversation_context)
+        logger.info(f"Query classified as: {query_type}")
         
-        initial_state: State = {
-            "query": query,
-            "context": [],
-            "graph_data": {},
-            "chat_history": self.memory_manager.get_chat_history(),
-            "response": ""
-        }
+        # Add the current query to the conversation context
+        self.conversation_context.append(query)
+        self.conversation_context = self.conversation_context[-5:]  # Keep last 5 exchanges
         
-        final_state = self.workflow.invoke(initial_state)
+        result = self.retrieve_context_and_graph(query, query_type)
+        chunks = result["chunks"]
+        graph_data = result["graph_data"]
         
-        logging.info("Query processed successfully.")
-        return final_state['response']
+        context = self.combine_context(chunks, graph_data, query_type)
+        
+        if query_type == "specific_issue":
+            response = self.process_specific_issue_query(query, context, graph_data)
+            self.current_issue_context = {"chunks": chunks, "graph_data": graph_data}
+        elif query_type == "trend_analysis":
+            response = self.process_trend_analysis_query(query, context, graph_data)
+        else:
+            response = self.process_general_question(query, context, graph_data)
+        
+        return response
 
-def subgraph_to_context(subgraph, similar_docs):
-    context = "Relevant information:\n"
-    for node in subgraph['nodes']:
-        context += f"- {node[2]}: {node[1]}\n"
-    for rel in subgraph['relationships']:
-        context += f"- {rel[1]} {rel[3]} {rel[2]}\n"
-    
-    context += "\nRelevant document excerpts:\n"
-    for doc in similar_docs:
-        content = doc.page_content[:200]  # Truncate to first 200 characters
-        context += f"- {content}...\n"
-    
-    return context
+    def combine_context(self, chunks, graph_data, query_type):
+        context = "Relevant information:\n"
+        for chunk in chunks:
+            context += f"- From {chunk['filename']} (Chunk {chunk['chunk_index']}): {chunk['content'][:200]}...\n"
+        
+        context += "\nRelevant entities and relationships:\n"
+        for node in graph_data['nodes']:
+            context += f"- {node['type']}: {node['properties']}\n"
+        for rel in graph_data['relationships']:
+            context += f"- {rel['source']} {rel['type']} {rel['target']}\n"
+        
+        if query_type == "trend_analysis":
+            context += "\nTrend Analysis Context:\n"
+            # Add any specific trend-related information here
+        
+        logger.info(f"Combined context: {len(context.split())} words, {len(chunks)} chunks, {len(graph_data['nodes'])} nodes, {len(graph_data['relationships'])} relationships")
+        return context
+
+    def process_specific_issue_query(self, query, context, graph_data):
+        prompt = f"""
+        Given the following specific issue query and context, provide a detailed response:
+        Query: {query}
+        
+        Context:
+        {context}
+        
+        Focus on the specific issue mentioned in the query and use the provided context and graph data to give a comprehensive answer.
+        If the query is a follow-up question, relate it to the previously discussed issue.
+        """
+        logger.info(f"Processing specific issue query with {len(context.split())} words of context")
+        return self.ai_service.generate_response(prompt, "")
+
+    def process_trend_analysis_query(self, query, context, graph_data):
+        prompt = f"""
+        Analyze the following trend-related query using the provided context and graph data:
+        Query: {query}
+        
+        Context:
+        {context}
+        
+        Identify any trends, patterns, or recurring issues in the data. Provide statistical insights if possible.
+        """
+        logger.info(f"Processing trend analysis query with {len(context.split())} words of context")
+        return self.ai_service.generate_response(prompt, "")
+
+    def process_general_question(self, query, context, graph_data):
+        prompt = f"""
+        Answer the following general question about production issues using the provided context and graph data:
+        Query: {query}
+        
+        Context:
+        {context}
+        
+        Provide a comprehensive answer based on the available information.
+        If this question relates to a previously discussed specific issue, make connections where relevant.
+        """
+        logger.info(f"Processing general question with {len(context.split())} words of context")
+        return self.ai_service.generate_response(prompt, "")
+
+    def reset_conversation(self):
+        self.conversation_context = []
+        self.current_issue_context = None
+        logger.info("Conversation context and current issue context have been reset")
+
+# ... (rest of the code remains the same)
