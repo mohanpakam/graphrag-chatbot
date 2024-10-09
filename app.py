@@ -42,7 +42,11 @@ def chatbot_tab():
             
             # Get AI response
             with st.spinner("AI is thinking..."):
-                ai_response = get_ai_response(user_input)
+                try:
+                    ai_response = get_ai_response(user_input)
+                except Exception as e:
+                    logger.error(f"Error getting AI response: {str(e)}")
+                    ai_response = "Oops, something went wrong. Please try again later."
             
             # Add AI response to chat history
             st.session_state.chat_history.append(("ai", ai_response))
@@ -69,46 +73,51 @@ def chatbot_tab():
         st.success("Chat has been reset!")
         st.rerun()
 
-# New tab for Production Support Issue Analysis
 def production_support_tab():
     st.header("Production Support Issue Analysis")
 
     if st.button("Reset Production Chat"):
-        response = requests.post(f"{config['backend_api_url']}/reset_production_chat")
-        st.success(response.json()["message"])
+        try:
+            response = requests.post(f"{config['backend_api_url']}/reset_production_chat")
+            st.success(response.json()["message"])
+        except Exception as e:
+            logger.error(f"Error resetting production chat: {str(e)}")
+            st.error("Oops, something went wrong. Please try again later.")
 
     user_query = st.text_input("Enter your production support query:")
 
     if user_query:
-        col1, col2 = st.columns(2)
-
-        with col1:
-            if st.button("Run Query"):
+        if st.button("Analyze Query"):
+            try:
                 response = requests.post(f"{config['backend_api_url']}/production_issue_query", json={"query": user_query})
                 data = response.json()
-                st.subheader("SQL Query")
-                st.code(data["sql_query"], language="sql")
-                st.subheader("Query Result")
-                st.table(data["result"])
+                
+                if data["query_type"] == "specific_issue":
+                    st.subheader("SQL Query")
+                    st.code(data["sql_query"], language="sql")
+                    st.subheader("Query Result")
+                    st.table(data["query_results"])
+                elif data["query_type"] == "trend_analysis":
+                    st.subheader("Trend Summary")
+                    st.write(data["trend_summary"])
+                    st.subheader("Trend Data")
+                    st.write(data["trend_data"])
+                    st.subheader("Trend Axes")
+                    st.write(f"X-axis: {data['trend_axes']['x']}")
+                    st.write(f"Y-axis: {data['trend_axes']['y']}")
+                elif data["query_type"] == "general_question":
+                    st.subheader("SQL Query")
+                    st.code(data["sql_query"], language="sql")
+                    st.subheader("Query Result")
+                    st.table(data["query_results"])
+                    st.subheader("Analysis Summary")
+                    st.write(data["analysis_summary"])
+                else:
+                    st.error("Oops, something went wrong. Please try again later.")
+            except Exception as e:
+                logger.error(f"Error analyzing production query: {str(e)}")
+                st.error("Oops, something went wrong. Please try again later.")
 
-        with col2:
-            if st.button("Get Analysis Summary"):
-                response = requests.post(f"{config['backend_api_url']}/production_issue_analysis", json={"query": user_query})
-                data = response.json()
-                st.subheader("Analysis Summary")
-                st.write(data["analysis_summary"])
-
-        if st.button("Show Trend Graph"):
-            response = requests.post(f"{config['backend_api_url']}/production_issue_trend", json={"query": user_query})
-            data = response.json()
-            graph_base64 = data["graph"]
-            graph_bytes = base64.b64decode(graph_base64)
-            graph_image = plt.imread(io.BytesIO(graph_bytes), format='png')
-            st.image(graph_image, caption="Trend Graph", use_column_width=True)
-            st.write(f"X-axis: {data['x_axis']}")
-            st.write(f"Y-axis: {data['y_axis']}")
-
-# Main app layout
 def main():
     # Ask for Google Vertex AI token
     # Initialize session state for chat history if it doesn't exist

@@ -11,19 +11,21 @@ from graphrag import GraphManager
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from ai_services import get_langchain_ai_service
 from config import LoggerConfig
-
+from structured.data_extractor import StructuredDataExtractor
+from structured.data_storage import StructuredDataStorage
 
 config = LoggerConfig.load_config()
 logger = LoggerConfig.setup_logger(__name__)
 
 class EmbedFileToFaiss:
     def __init__(self, index_file, db_path):
-       
         self.ai_service = get_langchain_ai_service(config['ai_service'])
         self.index = None
         self.embedding_cache = EmbeddingCache(index_file, db_path)
         self.graph_manager = GraphManager(db_path, self.ai_service)
         self.text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        self.data_extractor = StructuredDataExtractor()
+        self.data_storage = StructuredDataStorage(db_path)
 
     def get_file_embedding(self, file_path):
         if file_path.endswith('.md'):
@@ -83,13 +85,31 @@ class EmbedFileToFaiss:
         for filename in os.listdir(folder_path):
             if filename.endswith(('.txt', '.md')):
                 file_path = os.path.join(folder_path, filename)
-                document, chunks, chunk_embeddings, filename = self.get_file_embedding(file_path)
-                doc_id = self.add_to_index(document, chunks, chunk_embeddings, filename)
+                #read the file into document
+                if file_path.endswith('.md'):
+                    loader = UnstructuredMarkdownLoader(file_path)
+                else:
+                    loader = TextLoader(file_path)
                 
-                # Process the entire document with GraphManager
-                self.graph_manager.process_document(document, doc_id)
+                loaded_documents = loader.load()
+                if not loaded_documents:
+                    raise ValueError(f"No content loaded from file: {file_path}")
                 
-                logger.info(f"Processed {filename}")
+                document = loaded_documents[0]
+                
+                # document, chunks, chunk_embeddings, filename = self.get_file_embedding(file_path)
+                # doc_id = self.add_to_index(document, chunks, chunk_embeddings, filename)
+                
+                # Extract structured data using the data extractor
+                structured_data = self.data_extractor.extract_structured_data(document)
+                
+                # Ensure the issue_id is set to the doc_id
+                #structured_data['issue_id'] = str(doc_id)
+                
+                # Store the structured data
+                self.data_storage.store_structured_data(structured_data)
+                
+                logger.info(f"Processed {filename} and extracted structured data")
 
     def save_index(self, index_file):
         faiss.write_index(self.index, index_file)
@@ -109,20 +129,13 @@ class EmbedFileToFaiss:
             logger.info(f"Document ID: {result['document_id']}, Chunk Index: {result['chunk_index']}, Distance: {result['distance']}")
             logger.info(f"Content preview: {result['content'][:100]}...")
         
-        # Get graph data for the most similar chunk's document
+        # Get structured data for the most similar chunk's document
         if similar_chunks:
             most_similar_doc_id = similar_chunks[0]['document_id']
-            graph_data = self.graph_manager.get_subgraph_for_documents([most_similar_doc_id])
+            structured_data = self.data_storage.get_issue_data(str(most_similar_doc_id))
             
-            logger.info("\nGraph data:")
-            logger.info(f"Nodes: {len(graph_data['nodes'])}")
-            logger.info(f"Relationships: {len(graph_data['relationships'])}")
-            
-            # Display a few nodes and relationships as examples
-            for node in graph_data['nodes'][:3]:
-                logger.info(f"Node: {node}")
-            for rel in graph_data['relationships'][:3]:
-                logger.info(f"Relationship: {rel}")
+            logger.info("\nStructured data:")
+            logger.info(json.dumps(structured_data, indent=2))
 
 if __name__ == "__main__":
     index_file = config["faiss_index_file"]
@@ -133,7 +146,7 @@ if __name__ == "__main__":
     folder_path = config["text_folder"]
     embedder.process_folder(folder_path)
     
-    embedder.save_index(index_file)
+    # embedder.save_index(index_file)
     
     # Test retrieval
     test_queries = [

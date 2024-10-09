@@ -137,10 +137,13 @@ class DatabaseManager:
             schema_info = {}
             for table in tables:
                 table_name = table[0]
-                cursor.execute(f"PRAGMA table_info({table_name});")
-                columns = cursor.fetchall()
-                schema_info[table_name] = [column[1] for column in columns]
-        
+                #table_name starts with llm_extracted_
+                if table_name.startswith('llm_extracted_'):
+                    # Get the schema for the table using .schema table_name
+                    cursor.execute(f".schema {table_name};")
+                    table_schema = cursor.fetchall()
+                    schema_info.append((table_name, table_schema))
+                print(f"Schema Info for this table is {schema_info}")
         return schema_info
 
     def get_column_names(self, query):

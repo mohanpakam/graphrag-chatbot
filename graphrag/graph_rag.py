@@ -36,6 +36,9 @@ class GraphRAG:
         self.workflow = self._create_workflow()
         self.conversation_context = []
         self.current_issue_context = None
+    
+    def get_ai_service(self):
+        return self.ai_service
 
     def _create_workflow(self):
         workflow = StateGraph(State)

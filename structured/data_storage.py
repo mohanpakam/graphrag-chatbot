@@ -1,6 +1,10 @@
 import sqlite3
 from typing import Dict, Any, List
 from config import LoggerConfig
+from sqlite3 import Connection
+from contextlib import contextmanager
+import os
+import json
 
 logger = LoggerConfig.setup_logger(__name__)
 config = LoggerConfig.load_config()
@@ -8,75 +12,30 @@ config = LoggerConfig.load_config()
 class StructuredDataStorage:
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self.init_db()
-
-    def init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS llm_extracted_issues (
-                    id INTEGER PRIMARY KEY,
-                    issue_id TEXT UNIQUE,
-                    severity_level TEXT,
-                    root_cause TEXT,
-                    impact TEXT
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS llm_extracted_systems (
-                    id INTEGER PRIMARY KEY,
-                    name TEXT UNIQUE
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS llm_extracted_people (
-                    id INTEGER PRIMARY KEY,
-                    name TEXT UNIQUE
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS llm_extracted_timestamps (
-                    id INTEGER PRIMARY KEY,
-                    issue_id TEXT,
-                    type TEXT,
-                    timestamp TEXT,
-                    FOREIGN KEY (issue_id) REFERENCES llm_extracted_issues (issue_id)
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS llm_extracted_resolution_steps (
-                    id INTEGER PRIMARY KEY,
-                    issue_id TEXT,
-                    step_number INTEGER,
-                    description TEXT,
-                    FOREIGN KEY (issue_id) REFERENCES llm_extracted_issues (issue_id)
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS llm_extracted_relationships (
-                    id INTEGER PRIMARY KEY,
-                    source TEXT,
-                    relationship_type TEXT,
-                    target TEXT
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS llm_extracted_issue_systems (
-                    issue_id TEXT,
-                    system_id INTEGER,
-                    FOREIGN KEY (issue_id) REFERENCES llm_extracted_issues (issue_id),
-                    FOREIGN KEY (system_id) REFERENCES llm_extracted_systems (id)
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS llm_extracted_issue_people (
-                    issue_id TEXT,
-                    person_id INTEGER,
-                    FOREIGN KEY (issue_id) REFERENCES llm_extracted_issues (issue_id),
-                    FOREIGN KEY (person_id) REFERENCES llm_extracted_people (id)
-                )
-            ''')
+        self.sql_file_path = os.path.join(os.path.dirname(__file__), 'init_database.sql')
+        self.schema_info = self._read_sql_file()
+        self.init_database()
+        
+    @contextmanager
+    def connect(self) -> Connection:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            yield conn
+        finally:
             conn.commit()
+            conn.close()
+    
+    def _read_sql_file(self) -> str:
+        with open(self.sql_file_path, 'r') as sql_file:
+            return sql_file.read()
+        
+    def init_database(self):
+        with self.connect() as conn:
+            conn.executescript(self.schema_info)
+        print("Database initialized with required tables and indices.")
+
+    def get_schema_info(self):
+        return self.schema_info
 
     def store_structured_data(self, data: Dict[str, Any]):
         with sqlite3.connect(self.db_path) as conn:
@@ -84,9 +43,9 @@ class StructuredDataStorage:
             
             # Store issue
             cursor.execute('''
-                INSERT OR REPLACE INTO llm_extracted_issues (issue_id, severity_level, root_cause, impact)
-                VALUES (?, ?, ?, ?)
-            ''', (data['issue_id'], data['severity_level'], data['root_cause'], data['impact']))
+                INSERT OR REPLACE INTO llm_extracted_issues (issue_id, severity_level, root_cause, impact, llm_json_response)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (data['issue_id'], data['severity_level'], data['root_cause'], data['impact'], json.dumps(data)))
             
             # Store systems
             for system in data['systems_affected']:
@@ -135,11 +94,12 @@ class StructuredDataStorage:
             
             cursor.execute('SELECT * FROM llm_extracted_issues WHERE issue_id = ?', (issue_id,))
             issue = dict(cursor.fetchone())
+            issue['llm_json_response'] = json.loads(issue['llm_json_response'])
             
             cursor.execute('''
                 SELECT s.name FROM llm_extracted_systems s
-                JOIN llm_extracted_issue_systems is ON s.id = is.system_id
-                WHERE is.issue_id = ?
+                JOIN llm_extracted_issue_systems eis ON s.id = eis.system_id
+                WHERE eis.issue_id = ?
             ''', (issue_id,))
             issue['systems_affected'] = [row['name'] for row in cursor.fetchall()]
             

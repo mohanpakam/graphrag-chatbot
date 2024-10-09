@@ -1,0 +1,212 @@
+{
+  "tables": [
+    {
+      "name": "llm_extracted_issues",
+      "columns": [
+        {
+          "name": "issue_id",
+          "type": "TEXT",
+          "description": "Unique identifier for the production issue"
+        },
+        {
+          "name": "severity_level",
+          "type": "TEXT",
+          "description": "The severity level of the production issue"
+        },
+        {
+          "name": "root_cause",
+          "type": "TEXT",
+          "description": "The root cause of the production issue"
+        },
+        {
+          "name": "impact",
+          "type": "TEXT",
+          "description": "The impact of the production issue"
+        },
+        {
+          "name": "llm_json_response",
+          "type": "TEXT",
+          "description": "The JSON response from the LLM containing structured data about the production issue"
+        }
+      ]
+    },
+    {
+      "name": "llm_extracted_systems",
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "description": "Unique identifier for the system"
+        },
+        {
+          "name": "name",
+          "type": "TEXT",
+          "description": "The name of the system"
+        }
+      ],
+      "joins": [
+        {
+          "table": "llm_extracted_issue_systems",
+          "on": "llm_extracted_systems.id = llm_extracted_issue_systems.system_id"
+        }
+      ]
+    },
+    {
+      "name": "llm_extracted_issue_systems",
+      "columns": [
+        {
+          "name": "issue_id",
+          "type": "TEXT",
+          "description": "The ID of the production issue"
+        },
+        {
+          "name": "system_id",
+          "type": "INTEGER",
+          "description": "The ID of the affected system"
+        }
+      ],
+      "joins": [
+        {
+          "table": "llm_extracted_systems",
+          "on": "llm_extracted_issue_systems.system_id = llm_extracted_systems.id"
+        },
+        {
+          "table": "llm_extracted_issues",
+          "on": "llm_extracted_issue_systems.issue_id = llm_extracted_issues.issue_id"
+        }
+      ]
+    },
+    {
+      "name": "llm_extracted_people",
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "description": "Unique identifier for the person"
+        },
+        {
+          "name": "name",
+          "type": "TEXT",
+          "description": "The name of the person"
+        }
+      ],
+      "joins": [
+        {
+          "table": "llm_extracted_issue_people",
+          "on": "llm_extracted_people.id = llm_extracted_issue_people.person_id"
+        }
+      ]
+    },
+    {
+      "name": "llm_extracted_issue_people",
+      "columns": [
+        {
+          "name": "issue_id",
+          "type": "TEXT",
+          "description": "The ID of the production issue"
+        },
+        {
+          "name": "person_id",
+          "type": "INTEGER",
+          "description": "The ID of the person involved in the issue"
+        }
+      ],
+      "joins": [
+        {
+          "table": "llm_extracted_people",
+          "on": "llm_extracted_issue_people.person_id = llm_extracted_people.id"
+        },
+        {
+          "table": "llm_extracted_issues",
+          "on": "llm_extracted_issue_people.issue_id = llm_extracted_issues.issue_id"
+        }
+      ]
+    },
+    {
+      "name": "llm_extracted_timestamps",
+      "columns": [
+        {
+          "name": "issue_id",
+          "type": "TEXT",
+          "description": "The ID of the production issue"
+        },
+        {
+          "name": "type",
+          "type": "TEXT",
+          "description": "The type of timestamp (e.g., start, end)"
+        },
+        {
+          "name": "timestamp",
+          "type": "TEXT",
+          "description": "The timestamp value"
+        }
+      ],
+      "joins": [
+        {
+          "table": "llm_extracted_issues",
+          "on": "llm_extracted_timestamps.issue_id = llm_extracted_issues.issue_id"
+        }
+      ]
+    },
+    {
+      "name": "llm_extracted_resolution_steps",
+      "columns": [
+        {
+          "name": "issue_id",
+          "type": "TEXT",
+          "description": "The ID of the production issue"
+        },
+        {
+          "name": "step_number",
+          "type": "INTEGER",
+          "description": "The step number of the resolution"
+        },
+        {
+          "name": "description",
+          "type": "TEXT",
+          "description": "The description of the resolution step"
+        }
+      ],
+      "joins": [
+        {
+          "table": "llm_extracted_issues",
+          "on": "llm_extracted_resolution_steps.issue_id = llm_extracted_issues.issue_id"
+        }
+      ]
+    },
+    {
+      "name": "llm_extracted_relationships",
+      "columns": [
+        {
+          "name": "source",
+          "type": "TEXT",
+          "description": "The source node of the relationship (e.g., issue ID, system name)"
+        },
+        {
+          "name": "relationship_type",
+          "type": "TEXT",
+          "description": "The type of relationship"
+        },
+        {
+          "name": "target",
+          "type": "TEXT",
+          "description": "The target node of the relationship (e.g., system name, person name)"
+        }
+      ],
+      "joins": [
+        {
+          "table": "llm_extracted_issues",
+          "on": "llm_extracted_relationships.source = llm_extracted_issues.issue_id"
+        },
+        {
+          "table": "llm_extracted_systems",
+          "on": "llm_extracted_relationships.source = llm_extracted_systems.name OR llm_extracted_relationships.target = llm_extracted_systems.name"
+        },
+        {
+          "table": "llm_extracted_people",
+          "on": "llm_extracted_relationships.source = llm_extracted_people.name OR llm_extracted_relationships.target = llm_extracted_people.name"
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,5 @@
 from langchain.prompts import PromptTemplate
 from typing import List
-from ai_services import get_langchain_ai_service
 
 
 class QueryClassifier:
