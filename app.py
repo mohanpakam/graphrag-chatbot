@@ -1,18 +1,14 @@
 import streamlit as st
 import requests
 import yaml
-from database_manager import DatabaseManager
 import os
 import matplotlib.pyplot as plt
 import base64
 import io
-from import_embeddings_to_faiss import EmbedFileToFaiss, SearchResult
+from config import LoggerConfig
 
-def load_config():
-    with open("config.yaml", "r") as f:
-        return yaml.safe_load(f)
-
-config = load_config()
+config = LoggerConfig.load_config()
+logger = LoggerConfig.setup_logger(__name__)
 
 # Set page config
 st.set_page_config(page_title="AI Chatbot", page_icon="🤖", layout="wide")
@@ -22,12 +18,11 @@ def get_ai_response(user_input, reset=False):
     api_url = f"{config['backend_api_url']}/chat"
     payload = {
         "message": user_input, 
-        "reset": reset,
-        "vertex_ai_token": st.session_state.vertex_ai_token
+        "reset": reset
     }
     response = requests.post(api_url, json=payload)
-    print("Request sent to API:", {**payload, "vertex_ai_token": "***"})  # Hide token in logs
-    print("Response received from API:", response.json())
+    logger.debug("Request sent to API:", {**payload, "vertex_ai_token": "***"})  # Hide token in logs
+    logger.debug("Response received from API:", response.json())
     return response.json()["response"]
 
 def chatbot_tab():
@@ -57,11 +52,11 @@ def chatbot_tab():
 
     # Display chat history
     with chat_container:
-        for role, message in st.session_state.chat_history:
+        for i, (role, message) in enumerate(st.session_state.chat_history):
             if role == "user":
-                st.text_input("You:", value=message, disabled=True)
+                st.text_input("You:", value=message, disabled=True, key=f"user_message_{i}")
             else:
-                st.text_area("AI:", value=message, disabled=True)
+                st.text_area("AI:", value=message, disabled=True, key=f"ai_message_{i}")
 
     # Reset Chat button
     if st.button("Reset Chat"):
@@ -113,25 +108,9 @@ def production_support_tab():
             st.write(f"X-axis: {data['x_axis']}")
             st.write(f"Y-axis: {data['y_axis']}")
 
-def display_search_results(results: list[SearchResult]):
-    for result in results:
-        st.write(f"Distance: {result.distance:.4f}")
-        st.write(f"Filename: {result.filename}")
-        st.write(f"Chunk: {result.chunk_content}")
-        st.write("---")
-
 # Main app layout
 def main():
     # Ask for Google Vertex AI token
-    if 'vertex_ai_token' not in st.session_state:
-        st.session_state.vertex_ai_token = st.text_input("Enter your Google Vertex AI token:", type="password")
-        if st.session_state.vertex_ai_token:
-            os.environ['VERTEX_AI_TOKEN'] = st.session_state.vertex_ai_token
-            st.success("Token saved. You can now use the chatbot.")
-        else:
-            st.warning("Please enter a valid token to use the chatbot.")
-            st.stop()
-
     # Initialize session state for chat history if it doesn't exist
     if 'chat_history' not in st.session_state:
         st.session_state.chat_history = []

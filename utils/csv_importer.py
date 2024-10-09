@@ -2,11 +2,11 @@ import os
 import csv
 import sqlite3
 import re
-from db_manager import DBManager
+from utils import DatabaseManager
 
 class CSVImporter:
     def __init__(self, db_path, raw_data_folder):
-        self.db_manager = DBManager(db_path)
+        self.db_manager = DatabaseManager(db_path)
         self.raw_data_folder = raw_data_folder
 
     def normalize_column_name(self, name):

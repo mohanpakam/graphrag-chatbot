@@ -118,3 +118,33 @@ class DatabaseManager:
             cursor = conn.execute('SELECT content FROM documents WHERE id = ?', (doc_id,))
             result = cursor.fetchone()
             return result[0] if result else None
+    def execute_query(self, query, params=None):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
+            conn.commit()
+            return cursor.fetchall()
+
+    def get_schema_info(self):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = cursor.fetchall()
+            
+            schema_info = {}
+            for table in tables:
+                table_name = table[0]
+                cursor.execute(f"PRAGMA table_info({table_name});")
+                columns = cursor.fetchall()
+                schema_info[table_name] = [column[1] for column in columns]
+        
+        return schema_info
+
+    def get_column_names(self, query):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query)
+            return [description[0] for description in cursor.description]

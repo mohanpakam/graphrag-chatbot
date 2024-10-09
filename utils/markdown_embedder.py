@@ -3,7 +3,7 @@ from typing import List, Dict
 from langchain.text_splitter import MarkdownTextSplitter
 from langchain.vectorstores import Chroma
 from langchain.embeddings import VertexAIEmbeddings
-from database_manager import DatabaseManager
+from utils import DatabaseManager
 import json
 import hashlib
 

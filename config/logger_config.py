@@ -5,7 +5,7 @@ class LoggerConfig:
     @staticmethod
     def load_config():
         try:
-            with open("config.yaml", "r") as f:
+            with open("./config/config.yaml", "r") as f:
                 return yaml.safe_load(f)
         except FileNotFoundError:
             return {}

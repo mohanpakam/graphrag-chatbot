@@ -1,10 +1,11 @@
 from langchain.prompts import PromptTemplate
-from langchain.llms import BaseLLM
 from typing import List
+from ai_services import get_langchain_ai_service
+
 
 class QueryClassifier:
-    def __init__(self, llm: BaseLLM):
-        self.llm = llm
+    def __init__(self, ai_service):
+        self.ai_service = ai_service
         self.classification_prompt = PromptTemplate.from_template(
             "Classify the following query into one of these categories:\n"
             "1. Specific Issue Query: Asks about a particular production issue.\n"
@@ -22,7 +23,7 @@ class QueryClassifier:
             full_query = query
 
         prompt = self.classification_prompt.format(query=full_query)
-        response = self.llm(prompt)
+        response = self.ai_service.generate_response(prompt, "")
         
         # Add logic to detect transitions
         if "specific issue" in response.lower():

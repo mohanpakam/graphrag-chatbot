@@ -1,20 +1,34 @@
-Title: The Role of Exercise in Mental Health
+Issue ID: INC12345
 
-Regular physical exercise is not only beneficial for physical health but also plays a crucial role in maintaining and improving mental well-being. Numerous studies have shown that exercise can have a positive impact on various aspects of mental health.
+Systems Affected:
 
-Mental health benefits of exercise:
-1. Reduced symptoms of depression and anxiety
-2. Improved mood and self-esteem
-3. Better sleep quality
-4. Enhanced cognitive function
-5. Stress reduction
+Server A
+Database B
+Network C
+People Involved:
 
-Types of exercise that can improve mental health:
-- Aerobic activities (e.g., running, cycling, swimming)
-- Strength training
-- Yoga and mindfulness-based exercises
-- Team sports
+John Doe
+Jane Smith
+Michael Johnson
+Timestamps:
 
-It's important to note that even moderate amounts of exercise can yield significant mental health benefits. The key is to find activities that you enjoy and can incorporate into your daily routine.
+Start: 2023-11-15 10:00 AM
+End: 2023-11-16 5:00 PM
+Severity Level: Critical
 
-By prioritizing regular physical activity, individuals can take proactive steps towards better mental health and overall well-being.
+Root Cause:
+
+Hardware failure in Server A
+Resolution Steps:
+
+Replace faulty hardware in Server A.
+Restore data from backup.
+Verify system functionality.
+Impact:
+
+Service outage for 8 hours.
+Loss of data for a subset of users.
+Relationships:
+
+Server A is connected to Database B.
+Network C provides connectivity between Server A and Database B.

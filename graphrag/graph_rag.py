@@ -2,21 +2,22 @@ from typing import List, Dict, Any, TypedDict
 from langchain.schema import Document
 from langchain.prompts import PromptTemplate
 from langgraph.graph import StateGraph, END
-from vector_store_manager import VectorStoreManager
-from memory_manager import MemoryManager
-from graph_manager import GraphManager
-from langchain_ai_service import get_langchain_ai_service
-from embedding_cache import EmbeddingCache
-from query_classifier import QueryClassifier
+from ai_services import MemoryManager
+from graphrag import GraphManager
+from ai_services import get_langchain_ai_service
+from utils import EmbeddingCache
+from utils import QueryClassifier
 import yaml
 import logging
+from config import LoggerConfig
+import networkx as nx
+import matplotlib.pyplot as plt
+from io import BytesIO
+import base64
+import sqlite3
 
-def load_config():
-    with open("config.yaml", "r") as f:
-        return yaml.safe_load(f)
-
-config = load_config()
-logger = logging.getLogger(__name__)
+config = LoggerConfig.load_config()
+logger = LoggerConfig.setup_logger(__name__)
 
 class State(TypedDict):
     query: str
@@ -27,10 +28,9 @@ class State(TypedDict):
 
 class GraphRAG:
     def __init__(self):
-        self.vector_store_manager = VectorStoreManager()
         self.ai_service = get_langchain_ai_service(config['ai_service'])
         self.memory_manager = MemoryManager()
-        self.graph_manager = GraphManager(config['database_path'])
+        self.graph_manager = GraphManager(config['database_path'], self.ai_service)
         self.embedding_cache = EmbeddingCache(config['faiss_index_file'], config['database_path'])
         self.query_classifier = QueryClassifier(self.ai_service)
         self.workflow = self._create_workflow()
@@ -49,30 +49,25 @@ class GraphRAG:
     def retrieve_context_and_graph(self, query: str, query_type: str) -> Dict[str, Any]:
         query_embedding = self.ai_service.get_embedding(query)
         
-        if query_type == "specific_issue" or self.current_issue_context is None:
-            similar_chunks = self.embedding_cache.find_similar_chunks(query_embedding, config.get('top_k', 5))
+        similar_chunks = self.embedding_cache.find_similar_chunks(query_embedding, config.get('top_k', 5))
+        
+        logger.info(f"Retrieved {len(similar_chunks)} similar chunks from embeddings")
+        for chunk in similar_chunks:
+            logger.info(f"Chunk from file: {chunk['filename']}, chunk #{chunk['chunk_index']}, distance: {chunk['distance']:.4f}")
+        
+        if similar_chunks:
+            most_similar_doc_id = similar_chunks[0]['document_id']
+            all_doc_chunks = self.embedding_cache.get_all_chunks_for_document(most_similar_doc_id)
+            logger.info(f"Retrieved all {len(all_doc_chunks)} chunks for document ID {most_similar_doc_id}")
             
-            logger.info(f"Retrieved {len(similar_chunks)} similar chunks from embeddings")
-            for chunk in similar_chunks:
-                logger.info(f"Chunk from file: {chunk['filename']}, chunk #{chunk['chunk_index']}, distance: {chunk['distance']:.4f}")
+            graph_data = self.graph_manager.get_subgraph_for_documents([most_similar_doc_id])
+            logger.info(f"Retrieved graph data: {len(graph_data['nodes'])} nodes and {len(graph_data['relationships'])} relationships")
             
-            if similar_chunks:
-                most_similar_doc_id = similar_chunks[0]['document_id']
-                all_doc_chunks = self.embedding_cache.get_all_chunks_for_document(most_similar_doc_id)
-                logger.info(f"Retrieved all {len(all_doc_chunks)} chunks for document ID {most_similar_doc_id}")
-                
-                graph_data = self.graph_manager.get_subgraph_for_documents([most_similar_doc_id])
-                logger.info(f"Retrieved graph data: {len(graph_data['nodes'])} nodes and {len(graph_data['relationships'])} relationships")
-                
-                return {
-                    "chunks": all_doc_chunks,
-                    "graph_data": graph_data
-                }
-        else:
-            # For follow-up questions, use the context from the current issue
-            logger.info("Using existing context for follow-up question")
-            return self.current_issue_context
-
+            return {
+                "chunks": all_doc_chunks,
+                "graph_data": graph_data
+            }
+        
         # For broader queries or when no specific context is set
         doc_ids = list(set(chunk['document_id'] for chunk in similar_chunks))
         graph_data = self.graph_manager.get_subgraph_for_documents(doc_ids)
@@ -155,6 +150,8 @@ class GraphRAG:
         context = "Relevant information:\n"
         for chunk in chunks:
             context += f"- From {chunk['filename']} (Chunk {chunk['chunk_index']}): {chunk['content'][:200]}...\n"
+            if 'metadata' in chunk:
+                context += f"  Metadata: {chunk['metadata']}\n"
         
         context += "\nRelevant entities and relationships:\n"
         for node in graph_data['nodes']:
@@ -215,4 +212,119 @@ class GraphRAG:
         self.current_issue_context = None
         logger.info("Conversation context and current issue context have been reset")
 
-# ... (rest of the code remains the same)
+    def get_document_id_from_filename(self, filename: str) -> int:
+        """
+        Get the document ID from the filename.
+        
+        Args:
+        filename (str): The name of the file to search for.
+        
+        Returns:
+        int: The document ID if found, None otherwise.
+        """
+        with sqlite3.connect(self.embedding_cache.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM documents WHERE filename = ?', (filename,))
+            result = cursor.fetchone()
+            return result[0] if result else None
+
+    def generate_and_visualize_graph(self, filename: str):
+        """
+        Generate and visualize the graph for a specific document.
+        
+        Args:
+        filename (str): The name of the file to visualize.
+        
+        Returns:
+        tuple: A tuple containing the graph data and a base64 encoded image of the graph visualization.
+        """
+        document_id = self.get_document_id_from_filename(filename)
+        if document_id is None:
+            logger.error(f"No document found with filename: {filename}")
+            return None, None
+
+        # Retrieve all chunks for the document
+        chunks = self.embedding_cache.get_all_chunks_for_document(document_id)
+        
+        # Get the graph data for the document
+        graph_data = self.graph_manager.get_subgraph_for_documents([document_id])
+        
+        # Create a networkx graph
+        G = nx.Graph()
+        
+        # Add nodes
+        for node in graph_data['nodes']:
+            G.add_node(node['id'], **node)
+        
+        # Add edges
+        for rel in graph_data['relationships']:
+            G.add_edge(rel['source'], rel['target'], type=rel['type'])
+        
+        # Generate layout
+        pos = nx.spring_layout(G)
+        
+        # Create figure and axis
+        fig, ax = plt.subplots(figsize=(12, 8))
+        
+        # Draw nodes
+        nx.draw_networkx_nodes(G, pos, ax=ax, node_size=700, node_color='lightblue')
+        
+        # Draw edges
+        nx.draw_networkx_edges(G, pos, ax=ax, edge_color='gray')
+        
+        # Draw labels
+        nx.draw_networkx_labels(G, pos, ax=ax, font_size=8)
+        
+        # Draw edge labels
+        edge_labels = nx.get_edge_attributes(G, 'type')
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=6)
+        
+        # Set title
+        plt.title(f"Graph for Document: {filename}")
+        
+        # Save the plot to a BytesIO object
+        img_buffer = BytesIO()
+        plt.savefig(img_buffer, format='png')
+        img_buffer.seek(0)
+        
+        # Encode the image as base64
+        img_str = base64.b64encode(img_buffer.getvalue()).decode()
+        
+        # Close the plot to free up memory
+        plt.close()
+        
+        return graph_data, img_str
+
+    def test_document_graph(self, filename: str):
+        """
+        Test method to generate and print graph information for a specific document.
+        
+        Args:
+        filename (str): The name of the file to test.
+        
+        Returns:
+        tuple: A tuple containing the graph data and the base64 encoded image string.
+        """
+        graph_data, img_str = self.generate_and_visualize_graph(filename)
+        
+        if graph_data is None:
+            print(f"No graph data found for file: {filename}")
+            return None, None
+
+        print(f"Graph data for file: {filename}")
+        print(f"Number of nodes: {len(graph_data['nodes'])}")
+        print(f"Number of relationships: {len(graph_data['relationships'])}")
+        
+        print("\nNodes:")
+        for node in graph_data['nodes'][:5]:  # Print first 5 nodes as an example
+            print(f"  - ID: {node['id']}, Type: {node['type']}, Properties: {node['properties']}")
+        
+        print("\nRelationships:")
+        for rel in graph_data['relationships'][:5]:  # Print first 5 relationships as an example
+            print(f"  - Source: {rel['source']}, Target: {rel['target']}, Type: {rel['type']}")
+        
+        print("\nGraph visualization has been generated.")
+        
+        return graph_data, img_str
+
+# Remove the if __name__ == "__main__": block

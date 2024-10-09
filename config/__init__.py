@@ -1,3 +1,5 @@
-from .config import load_config
+from .logger_config import LoggerConfig
 
-config = load_config()
+__all__ = [
+    "LoggerConfig"
+]

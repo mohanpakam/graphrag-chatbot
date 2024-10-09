@@ -1,0 +1,34 @@
+Issue ID: INC12349
+
+Systems Affected:
+
+Artemis
+Apollo
+Hermes
+People Involved:
+
+Athena
+Hephaestus
+Dionysus
+Timestamps:
+
+Start: 2023-11-22 7:00 AM
+End: 2023-11-22 4:00 PM
+Severity Level: Critical
+
+Root Cause:
+
+Hardware failure in Artemis
+Resolution Steps:
+
+Replace faulty hardware in Artemis.
+Restore data from backup.
+Verify system functionality.
+Impact:
+
+Service outage for 9 hours.
+Loss of data for a subset of users.
+Relationships:
+
+Artemis is connected to Apollo.
+Hermes provides communication between Artemis and Apollo.

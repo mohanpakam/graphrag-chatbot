@@ -1,0 +1,31 @@
+Issue ID: INC12347
+
+Systems Affected:
+
+Odin
+Thor
+Loki
+People Involved:
+
+Freya
+Heimdall
+Tyr
+Timestamps:
+
+Start: 2023-11-18 12:00 PM
+End: 2023-11-19 10:00 AM
+Severity Level: Medium
+
+Root Cause:
+
+Network connectivity issue between Odin and Thor
+Resolution Steps:
+
+Troubleshoot network connection.
+Restart network devices.
+Impact:
+
+Intermittent service disruptions.
+Relationships:
+
+Odin is connected to Thor via a network link.

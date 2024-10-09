@@ -1,27 +1,28 @@
 import os
-from langchain.document_loaders import TextLoader, UnstructuredMarkdownLoader
-from langchain.embeddings import VertexAIEmbeddings
+from langchain_community.document_loaders import UnstructuredMarkdownLoader, TextLoader
 from google.cloud import aiplatform
 import faiss
 import numpy as np
 from dataclasses import dataclass
 import json
-from embedding_cache import EmbeddingCache
+from utils import EmbeddingCache
 from langchain.schema import Document
-from graph_manager import GraphManager
+from graphrag import GraphManager
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-import logging
+from ai_services import get_langchain_ai_service
+from config import LoggerConfig
 
-logger = logging.getLogger(__name__)
+
+config = LoggerConfig.load_config()
+logger = LoggerConfig.setup_logger(__name__)
 
 class EmbedFileToFaiss:
-    def __init__(self, project_id, location, credentials_path, index_file, db_path):
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
-        aiplatform.init(project=project_id, location=location)
-        self.embeddings = VertexAIEmbeddings()
+    def __init__(self, index_file, db_path):
+       
+        self.ai_service = get_langchain_ai_service(config['ai_service'])
         self.index = None
         self.embedding_cache = EmbeddingCache(index_file, db_path)
-        self.graph_manager = GraphManager(db_path)
+        self.graph_manager = GraphManager(db_path, self.ai_service)
         self.text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
     def get_file_embedding(self, file_path):
@@ -53,8 +54,8 @@ class EmbedFileToFaiss:
         
         chunks = self.text_splitter.split_text(document.page_content)
         
-        # Generate embeddings for chunks
-        chunk_embeddings = self.embeddings.embed_documents(chunks)
+        # Generate embeddings for chunks using the AI service
+        chunk_embeddings = [self.ai_service.get_embedding(chunk) for chunk in chunks]
         
         return document, chunks, chunk_embeddings, filename
 
@@ -94,28 +95,55 @@ class EmbedFileToFaiss:
         faiss.write_index(self.index, index_file)
         logger.info(f"Index saved to {index_file}")
 
+    def test_retrieval(self, query: str):
+        logger.info(f"Testing retrieval for query: '{query}'")
+        
+        # Get query embedding
+        query_embedding = self.ai_service.get_embedding(query)
+        
+        # Find similar chunks
+        similar_chunks = self.embedding_cache.find_similar_chunks(query_embedding, k=5)
+        
+        logger.info("Similar chunks:")
+        for result in similar_chunks:
+            logger.info(f"Document ID: {result['document_id']}, Chunk Index: {result['chunk_index']}, Distance: {result['distance']}")
+            logger.info(f"Content preview: {result['content'][:100]}...")
+        
+        # Get graph data for the most similar chunk's document
+        if similar_chunks:
+            most_similar_doc_id = similar_chunks[0]['document_id']
+            graph_data = self.graph_manager.get_subgraph_for_documents([most_similar_doc_id])
+            
+            logger.info("\nGraph data:")
+            logger.info(f"Nodes: {len(graph_data['nodes'])}")
+            logger.info(f"Relationships: {len(graph_data['relationships'])}")
+            
+            # Display a few nodes and relationships as examples
+            for node in graph_data['nodes'][:3]:
+                logger.info(f"Node: {node}")
+            for rel in graph_data['relationships'][:3]:
+                logger.info(f"Relationship: {rel}")
+
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    index_file = config["faiss_index_file"]
+    db_path = config["database_path"]
     
-    project_id = "your-project-id"
-    location = "your-location"
-    credentials_path = "path/to/your/google-cloud-credentials.json"
-    index_file = "embeddings_index.faiss"
-    db_path = "embeddings.db"
+    embedder = EmbedFileToFaiss(index_file, db_path)
     
-    embedder = EmbedFileToFaiss(project_id, location, credentials_path, index_file, db_path)
-    
-    folder_path = "path/to/your/text/files/folder"
+    folder_path = config["text_folder"]
     embedder.process_folder(folder_path)
     
     embedder.save_index(index_file)
     
-    # Example search
-    query_embedding = embedder.embeddings.embed_query("Your query text here")
-    similar_chunks = embedder.embedding_cache.find_similar_chunks(query_embedding)
+    # Test retrieval
+    test_queries = [
+        "What are the common root causes of production issues?",
+        "How do we handle database failures?",
+        "What's the process for escalating critical issues?",
+        "Can you summarize recent network outages?",
+        "Who are the key people involved in incident response?"
+    ]
     
-    logger.info("Similar chunks:")
-    for result in similar_chunks:
-        logger.info(f"Document ID: {result['document_id']}, Chunk Index: {result['chunk_index']}, Distance: {result['distance']}")
-        logger.info(f"Content preview: {result['content'][:100]}...")
-        logger.info("---")
+    for query in test_queries:
+        embedder.test_retrieval(query)
+        print("\n" + "="*50 + "\n")

@@ -5,6 +5,7 @@ import pandas as pd
 from db_manager import DBManager
 from logger_config import LoggerConfig
 import json
+from graph_rag_project.pdf_extractor import PDFExtractor
 
 config = LoggerConfig.load_config()
 logger = LoggerConfig.setup_logger(__name__)

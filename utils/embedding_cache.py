@@ -3,7 +3,9 @@ from typing import List, Tuple, Dict
 import faiss
 import json
 import sqlite3
-from logger_config import LoggerConfig
+from config import LoggerConfig
+import os
+from ai_services import get_langchain_ai_service
 
 logger = LoggerConfig.setup_logger(__name__)
 config = LoggerConfig.load_config()
@@ -13,14 +15,36 @@ class EmbeddingCache:
         self.index_file = index_file
         self.db_path = db_path
         self.faiss_index = None
-        self.load_index()
+        self.ai_service = get_langchain_ai_service(config['ai_service'])
+        self.load_or_create_index()
         self.init_db()
 
-    def load_index(self):
-        logger.info("Loading FAISS index...")
-        base_index = faiss.read_index(self.index_file)
+    def load_or_create_index(self):
+        logger.info("Loading or creating FAISS index...")
+        dimension = config.get('embedding_dimension', 768)  # Default to 768 if not specified
+
+        if os.path.exists(self.index_file):
+            logger.info(f"Loading existing index from {self.index_file}")
+            try:
+                self.faiss_index = faiss.read_index(self.index_file)
+                logger.info(f"Loaded existing index with {self.faiss_index.ntotal} vectors")
+            except RuntimeError as e:
+                logger.error(f"Error loading index: {e}")
+                logger.info("Creating a new index instead")
+                self.create_new_index(dimension)
+        else:
+            logger.info(f"Index file not found. Creating new FAISS index with dimension {dimension}")
+            self.create_new_index(dimension)
+
+    def create_new_index(self, dimension):
+        base_index = faiss.IndexFlatL2(dimension)
         self.faiss_index = faiss.IndexIDMap(base_index)
-        logger.info(f"Loaded {self.faiss_index.ntotal} chunk embeddings.")
+        logger.info(f"Created new FAISS index with dimension {dimension}")
+        self.save_index()
+
+    def save_index(self):
+        faiss.write_index(self.faiss_index, self.index_file)
+        logger.info(f"Saved FAISS index to {self.index_file}")
 
     def init_db(self):
         with sqlite3.connect(self.db_path) as conn:
@@ -55,29 +79,31 @@ class EmbeddingCache:
             ''', (filename, content, json.dumps(metadata)))
             doc_id = cursor.lastrowid
 
+            # Generate embeddings for all chunks at once
+            chunk_embeddings = self.ai_service.embed_documents(chunks)
+
             chunk_ids = []
-            for i, chunk in enumerate(chunks):
+            for i, (chunk, embedding) in enumerate(zip(chunks, chunk_embeddings)):
                 cursor.execute('''
                     INSERT INTO chunks (document_id, chunk_index, content)
                     VALUES (?, ?, ?)
                 ''', (doc_id, i, chunk))
-                chunk_ids.append(cursor.lastrowid)
+                chunk_id = cursor.lastrowid
+                chunk_ids.append(chunk_id)
+
+            # Add embeddings to FAISS index
+            self.faiss_index.add_with_ids(
+                np.array(chunk_embeddings, dtype=np.float32),
+                np.array(chunk_ids, dtype=np.int64)
+            )
 
             conn.commit()
             logger.info(f"Stored document '{filename}' with ID {doc_id} and {len(chunks)} chunks")
             return doc_id, chunk_ids
 
-    def store_chunk(self, doc_id: int, chunk_index: int, content: str) -> int:
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO chunks (document_id, chunk_index, content)
-                VALUES (?, ?, ?)
-            ''', (doc_id, chunk_index, content))
-            return cursor.lastrowid
-
     def find_similar_chunks(self, query_embedding: List[float], k: int = 5) -> List[Dict]:
-        if self.faiss_index is None:
+        if self.faiss_index is None or self.faiss_index.ntotal == 0:
+            logger.warning("FAISS index is empty. No similar chunks found.")
             return []
 
         # Search in chunk-level index
@@ -114,17 +140,30 @@ class EmbeddingCache:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT id, chunk_index, content
-                FROM chunks
-                WHERE document_id = ?
-                ORDER BY chunk_index
+                SELECT c.id, c.chunk_index, c.content, d.filename, d.metadata
+                FROM chunks c
+                JOIN documents d ON c.document_id = d.id
+                WHERE c.document_id = ?
+                ORDER BY c.chunk_index
             ''', (document_id,))
             chunks = cursor.fetchall()
-            return [{'chunk_id': id, 'chunk_index': idx, 'content': content} for id, idx, content in chunks]
+            return [{
+                'chunk_id': id,
+                'chunk_index': idx,
+                'content': content,
+                'filename': filename,
+                'metadata': json.loads(metadata)
+            } for id, idx, content, filename, metadata in chunks]
 
     def close(self):
-        # No need to close anything for FAISS or SQLite (connection is closed after each operation)
-        pass
+        self.save_index()
+
+    def get_document_content(self, document_id: int) -> str:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT content FROM documents WHERE id = ?', (document_id,))
+            result = cursor.fetchone()
+            return result[0] if result else None
 
 # Example usage
 if __name__ == "__main__":
@@ -133,9 +172,11 @@ if __name__ == "__main__":
     cache = EmbeddingCache(index_file, db_path)
     
     # Example search
-    query_embedding = [0.1] * cache.faiss_index.d  # Replace with actual query embedding
+    query_embedding = [0.1] * 768  # Replace with actual query embedding and correct dimension
     similar_chunks = cache.find_similar_chunks(query_embedding, k=5)
     print("Similar chunks:")
     for chunk in similar_chunks:
         print(f"Distance: {chunk['distance']}, File: {chunk['filename']}, Chunk ID: {chunk['chunk_id']}, Chunk Index: {chunk['chunk_index']}")
         print(f"Content preview: {chunk['content'][:100]}...")
+
+    cache.close()
