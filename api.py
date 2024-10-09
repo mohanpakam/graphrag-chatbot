@@ -4,6 +4,8 @@ import numpy as np
 from utils.database_manager import DatabaseManager
 from utils.embedding_cache import EmbeddingCache
 from graphrag import GraphRAG
+from structured.data_extractor import StructuredDataExtractor
+from structured.data_storage import StructuredDataStorage
 import yaml
 from ai_services import get_langchain_ai_service
 import time
@@ -17,6 +19,8 @@ config = LoggerConfig.load_config()
 db_manager = DatabaseManager(config['database_path'])
 embedding_cache = EmbeddingCache(config['faiss_index_file'], config['database_path'])
 graph_rag = GraphRAG()
+structured_data_extractor = StructuredDataExtractor()
+structured_data_storage = StructuredDataStorage(config['database_path'])
 
 # Configure logging
 logger = LoggerConfig.setup_logger(__name__)
@@ -60,21 +64,19 @@ async def chat(request: ChatRequest):
 
 @app.post("/production_issue_query")
 async def production_issue_query(request: ProductionIssueRequest):
-    query_embedding = ai_service.get_embedding(request.query)
-    similar_chunks = embedding_cache.find_similar_chunks(query_embedding, k=5)
+    # Use structured data storage to retrieve relevant information
+    issues = structured_data_storage.get_relevant_issues(request.query)
     
-    # Use GraphRAG to process the query with the retrieved chunks
-    response = graph_rag.process_query(request.query, similar_chunks)
+    response = graph_rag.process_query(request.query, context=issues)
     
     return {"response": response}
 
 @app.post("/production_issue_analysis")
 async def production_issue_analysis(request: ProductionIssueRequest):
-    query_embedding = ai_service.get_embedding(request.query)
-    similar_chunks = embedding_cache.find_similar_chunks(query_embedding, k=5)
+    # Use structured data storage to retrieve relevant information
+    issues = structured_data_storage.get_relevant_issues(request.query)
     
-    # Use GraphRAG to process the analysis query
-    analysis_summary = graph_rag.process_analysis_query(request.query, similar_chunks)
+    analysis_summary = graph_rag.process_analysis_query(request.query, context=issues)
     
     return {"analysis_summary": analysis_summary}
 
